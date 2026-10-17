@@ -10,7 +10,8 @@ requests occur.
 
 ## Quick start / Codespaces
 
-Use Node.js 22.12+ (Node 22 LTS recommended) and npm 10+.
+Use Node.js 20.19.x, 22.13.x or later within 22.x, or 24+ (Node 22 LTS
+recommended) and npm 10+.
 
 1. Open this repository with **Code → Codespaces → Create codespace**.
 2. Check `node --version`. If needed, run `nvm install` and `nvm use`.
