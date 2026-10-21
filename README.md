@@ -39,13 +39,24 @@ supervised maintenance and rollback plan.
 
 ## MVP features and screens
 
-Keep V1 to a small volunteer workflow:
+Keep V1 to three screens for the volunteer workflow:
 
-- **Status:** camera, audio, OBS, internet/broadcast connection health and
-  preflight failures.
-- **Camera:** live camera preview and Wide, Altar, Reader presets.
-- **Broadcast:** Prepare, Go Live, monitor, and End Broadcast.
-- **Basic settings:** only settings required to operate this workflow safely.
+1. **Overview:** At-a-glance camera, audio, OBS, and internet/stream health;
+   show actionable preflight failures and links to Camera or Broadcast. No
+   configuration dashboard or advanced metrics.
+2. **Camera:** One live preview and three saved presets—Wide, Altar, Reader.
+   Show camera connection and selected preset. No multi-camera layouts, manual
+   joystick, or advanced PTZ controls in V1.
+3. **Broadcast:** Preflight summary, Prepare, Go Live, current stream state,
+   and End Broadcast with a clear confirmation. Keep essential audio/OBS/stream
+   health visible while operating. No scheduling, graphics, or analytics.
+
+Basic settings should be limited to values required to connect the single
+camera, audio feed, OBS, and one YouTube destination; place them in context or
+an in-screen panel, not a separate settings screen. Keep credentials out of the
+dashboard wherever possible. A live preview and real controls are product
+requirements, not current functionality: the implementation below remains
+simulation-only.
 
 ## Installation and development
 
