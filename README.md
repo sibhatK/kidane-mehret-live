@@ -1,120 +1,115 @@
 # Kidane Mehret Live
 
-A mock-only livestream control foundation for **Kidane Mehret Eritrean Ge’ez
-Rite Church in Atlanta**. Designed for iPad Safari and desktop browsers.
+Kidane Mehret Live is a beginner-friendly control platform for the Sunday Divine
+Liturgy livestream at **Kidane Mehret Eritrean Ge'ez Rite Church, Atlanta,
+Georgia**. The goal is for volunteers to check camera, audio, and internet
+health; prepare; start and monitor; then safely stop a broadcast from an iPad or
+Mac without operating OBS directly. Reliability, simplicity, and audio quality
+take priority.
 
-**Nothing in this project broadcasts.** Camera, mixer, OBS, and YouTube connection
-indicators are simulated. “Go Live” starts an in-memory rehearsal, always labeled
-**NOT LIVE**. No camera movement, media capture, preview feed, or external API
-requests occur.
+> **Current application is simulation-only.** No camera moves, audio is sent,
+> recording is made, or stream is sent to YouTube. The dashboard and backend
+> use in-memory mocks and are not ready for church broadcasting.
 
-## Quick start / Codespaces
+## Project status
 
-Use Node.js 20.19.x, 22.13.x or later within 22.x, or 24+ (Node 22 LTS
-recommended) and npm 10+.
+**As of 2026-10-21:** the TypeScript foundation is implemented, but its device
+and broadcast behavior is mocked. No milestone has passed physical hardware or
+church-pilot validation. Current blockers and criteria are in
+[docs/WORKPLAN.md](docs/WORKPLAN.md).
 
-1. Open this repository with **Code → Codespaces → Create codespace**.
-2. Check `node --version`. If needed, run `nvm install` and `nvm use`.
-3. In the repository root, run:
+| PR                                                         | Description                             | GitHub Status               | Milestone        | Implementation Status                                                                                                                                                                                                                                  | Next Action                                                                                                                                         |
+| ---------------------------------------------------------- | --------------------------------------- | --------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#1](https://github.com/sibhatK/kidane-mehret-live/pull/1) | Bootstrap mock-only TypeScript monorepo | Open, non-draft, not merged | M2/M3 foundation | Implemented: Fastify API, shared Zod contracts, React dashboard, and mock adapters. Tested locally: 33 tests pass; lint/build pass. Hardware-validated: no. Two outdated review threads remain unresolved; requested changes are present in `c281adb`. | Review/resolve the outdated threads and review the mock-only scope. Continue M0 hardware/network validation; do not treat this PR as a live system. |
 
-   ```sh
-   npm ci
-   npm run dev
-   ```
+GitHub listed two branches (`main` and this task branch). PR #1 changes the
+initial application foundation; it does not implement the confirmed hardware
+topology, real OBS/PTZ control, or any validated broadcast. No other PRs were
+returned by the repository's all-states PR listing. See the
+[workplan](docs/WORKPLAN.md) for milestone status and scope.
 
-4. In Codespaces’ **Ports** panel, open port **5173** in the browser. If it is not
-   detected automatically, add it manually. Keep its visibility **Private**.
-   Only forward 5173; the Vite proxy reaches the loopback-only agent on port 3001.
-   The same forwarded URL works in iPad Safari after signing into GitHub.
+### Immediate next three engineering tasks
 
-Locally, run the same commands and open <http://localhost:5173>.
-For a local-network iPad rehearsal, use your development computer’s LAN address
-on port 5173 on a trusted network. Vite binds to all interfaces for this purpose.
-Do not expose either development server to the public internet.
+1. Complete M0 in a supervised maintenance window: back up current settings,
+   confirm route cleanup, and validate simultaneous Wi-Fi/Ethernet on a
+   controlled network plan. Do not change church equipment remotely.
+2. Verify actual camera video in OBS and identify/test the mixer-to-Mac audio
+   path before any stream test (M1).
+3. After M0/M1 evidence, design the Mac-mini-to-iPad control boundary and
+   security model; the current agent listens only on loopback and has no
+   authentication.
 
-No `.env`, credentials, broadcasting equipment, OBS installation, or YouTube
-account is needed. Supported UI baseline: Safari/iPadOS 16.4+ (Tailwind CSS 4).
-Touch controls are at least 56px tall, with keyboard focus and pressed states.
+## Locked V1 scope
 
-## Commands
+V1 is one PTZOptics camera, one church audio feed, one YouTube destination, an
+OBS-based Mac mini streaming engine, and a React dashboard controlled from an
+iPad. It includes three PTZ presets (Wide, Altar, Reader), Prepare/Start/Stop,
+real device/stream status, essential preflight and failure reporting, safe-stop
+confirmation, and local recording where supported.
 
-Run these from the repository root:
+Multiple cameras, AI directing, a custom encoder, cloud hosting/databases,
+advanced scheduling, elaborate graphics, multilingual UI, native mobile apps,
+and unrelated infrastructure/features are excluded. Authentication is not a
+feature-expansion target, but the minimum security required before safe local
+remote operation is mandatory. Proposals outside V1 belong in a future
+enhancements list and require explicit change approval; do not add them
+implicitly. The current simulation does not yet implement most operational V1
+requirements.
 
-| Command                                                  | Purpose                                                            |
-| -------------------------------------------------------- | ------------------------------------------------------------------ |
-| `npm ci`                                                 | Install the locked workspace dependencies                          |
-| `npm run dev`                                            | Build shared contracts, then watch contracts, agent, and dashboard |
-| `npm run build`                                          | Build contracts → agent → dashboard, with strict TypeScript checks |
-| `npm run lint`                                           | ESLint and Prettier checks                                         |
-| `npm run format`                                         | Format source and configuration                                    |
-| `npm test`                                               | Build contracts and run all Vitest tests                           |
-| `npm test -- apps/agent/src/app.test.ts`                 | Run targeted API tests                                             |
-| `npm start`                                              | Run the compiled agent on loopback port 3001 (build first)         |
-| `npm run preview -w @kidane/dashboard -- --host 0.0.0.0` | Preview the built dashboard on port 4173 with its API proxy        |
-
-To smoke-test compiled output, run `npm run build`, then `npm start` and the
-dashboard preview command in separate terminals. Vite preview is for verification,
-not a production hosting service.
-
-## Architecture
+## Architecture and repository
 
 ```text
-apps/dashboard     React + Vite + Tailwind; validated, same-origin API client
-apps/agent         Fastify; loopback-only REST API and in-memory mock adapters
-packages/shared    Zod schemas, inferred TypeScript contracts, workflow guards
+apps/dashboard/       React + Vite + Tailwind iPad/desktop interface
+apps/agent/           Fastify API, command handling, mock adapters
+packages/shared/      Zod schemas, TypeScript contracts, workflow guards
+docs/                 Architecture, network findings, and milestone workplan
 ```
 
-The Mac mini will eventually host OBS and the agent; the iPad is only a control
-client. `CameraAdapter`, `AudioAdapter`, and `ObsAdapter` in
-`apps/agent/src/adapters.ts` are the server-side integration boundaries for future
-PTZOptics and OBS WebSocket work. Only mock implementations exist today. A real
-integration will require a deliberate revision of the simulation-only contracts
-and controls; it cannot be enabled with an environment flag.
+The intended deployment places OBS and the backend agent on the Mac mini; the
+iPad is a control client over church Wi-Fi. The Mac has separate camera Ethernet
+and internet Wi-Fi interfaces. This is an application-level intermediary, not
+macOS Internet Sharing or IP forwarding. Today the agent binds to
+`127.0.0.1:3001`; Vite proxies `/api` to it during development. Direct iPad access
+to a loopback-only agent is therefore not implemented. Review
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+[docs/NETWORK_TROUBLESHOOTING.md](docs/NETWORK_TROUBLESHOOTING.md) before
+designing the real connection.
 
-The shared status contract requires `mode: "simulated"` and has no live state.
-Agent responses and dashboard inputs are runtime-validated. Unapproved adapter
-fields are stripped; adapter errors are not exposed to the client. Future stream
-keys and camera credentials must remain in the agent, never in shared contracts,
-browser bundles, or `VITE_*` variables.
+The current adapter implementations are mocks. Shared status requires
+`mode: "simulated"` and excludes a live broadcast state. No stream key or camera
+credentials belong in browser code, shared contracts, or `VITE_*` variables.
+The project currently has no credential configuration or authentication.
 
-### API
+## Development
 
-- `GET /api/status` — validated camera, audio, OBS, and broadcast status.
-- `POST /api/commands` — validated simulation commands:
+Prerequisites: Node.js `^20.19.0 || ^22.13.0 || >=24.0.0` and npm 10+.
 
-  ```json
-  { "type": "preset", "preset": "Altar" }
-  ```
+```sh
+npm ci
+npm run dev
+```
 
-  ```json
-  { "type": "broadcast", "action": "prepare" }
-  ```
+Open port 5173 for the dashboard. Keep Codespaces forwarding private; the
+dashboard's development proxy reaches the loopback agent on port 3001.
 
-Presets: `Wide`, `Altar`, `Reader`. Broadcast actions: `prepare`, `go-live`, `end`.
-Workflow: `idle → prepared → simulating → idle`; `end` also cancels preparation.
-Invalid commands return 400; unavailable transitions or overlapping commands
-return 409. Prepare/Go Live require connected mock devices and unmuted mock audio;
-End remains available if a simulated connection drops.
+| Command         | Purpose                                        |
+| --------------- | ---------------------------------------------- |
+| `npm run build` | Build shared contracts, agent, and dashboard   |
+| `npm run lint`  | Run ESLint and Prettier checks                 |
+| `npm test`      | Build contracts and run Vitest                 |
+| `npm start`     | Start the compiled agent on loopback port 3001 |
 
-State lives only in the agent process and resets on restart. The dashboard polls
-every three seconds, times requests out after five seconds, disables controls
-while commands run, and discards stale status on request failure. Multiple clients
-share agent state; the agent serializes commands.
+The repository includes Vitest tests for shared safety contracts, API
+transitions/error handling, and dashboard simulation behavior. This checkout's
+local validation on 2026-10-21 passed `npm run lint`, all 33 tests via
+`npm test`, and `npm run build`. GitHub Actions currently lists Copilot
+coding-agent and Copilot review workflows, not a project build/test workflow.
+The PR check-run API was inaccessible to this review (403); do not interpret
+agent-workflow completion as application CI. Run the local commands above for
+code validation.
 
-## Verification and scope
+## Detailed documents
 
-Vitest covers schemas, credential-field stripping, readiness guards, workflow
-transitions, presets, concurrency, error redaction, dashboard labels/button
-availability, and API response validation/timeouts. A manual smoke test:
-
-1. Select Wide, Altar, and Reader; confirm the selected simulated frame changes.
-2. Prepare → Go Live; confirm **Broadcast simulation running — NOT LIVE**.
-3. End Broadcast; confirm **Not broadcasting**.
-4. Stop the agent; confirm controls disable after the next status request fails.
-5. Restart the agent; confirm automatic reconnection with the reset mock state.
-6. Repeat at iPad portrait/landscape and desktop widths; check touch and keyboard use.
-
-This foundation deliberately excludes authentication, databases, cloud
-infrastructure, YouTube APIs, actual streaming, NDI decoding, and PTZ hardware
-control. It is **not ready for public deployment or real church broadcasting**.
-No credentials should be configured for this MVP.
+- [Architecture and integration boundaries](docs/ARCHITECTURE.md)
+- [Church network findings and maintenance procedure](docs/NETWORK_TROUBLESHOOTING.md)
+- [Locked scope, milestones, and acceptance criteria](docs/WORKPLAN.md)
