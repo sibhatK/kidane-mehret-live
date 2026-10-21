@@ -27,12 +27,14 @@ The church mixer-to-Mac audio connection is not yet verified. The product is
 intended for one camera, one audio feed, and one YouTube destination. Do not
 enable macOS Internet Sharing or IP forwarding as an MVP workaround.
 
-**Network issue:** observed addresses are camera `192.168.1.76`, Mac Ethernet
-`192.168.1.10`, and Mac Wi-Fi `192.168.1.206`. The camera is accessible when
-Wi-Fi is disabled, and internet works through Wi-Fi. Simultaneous connectivity
-is unreliable; a temporary route did not restore camera access. Moving camera
-Ethernet and the camera to a separate subnet has been proposed but is not
-verified or implemented. Make no network changes without a backed-up,
+**Network status:** the camera was successfully reached at `192.168.100.76`
+while the Mac was also connected to Wi-Fi. Earlier tests at camera
+`192.168.1.76` with Mac Ethernet `192.168.1.10` and Wi-Fi `192.168.1.206`
+found the camera accessible with Wi-Fi disabled, but unreliable with both
+interfaces enabled. The new result is evidence of successful simultaneous
+access in that test, not yet sustained reliability or proof of live OBS video.
+Confirm and record the current Mac Ethernet settings and repeat the test before
+calling the network validated. Make no network changes without a backed-up,
 supervised maintenance and rollback plan.
 
 ## MVP features and screens
@@ -77,10 +79,10 @@ broadcast system:
   capture, recording, or YouTube stream.
 - Automated tests cover contracts, API transitions/errors, and dashboard
   behavior. They do not verify hardware.
-- Hardware status: dual Wi-Fi/Ethernet camera access unresolved; live video
-  decode in OBS unverified; mixer audio connection unverified; PTZ control
-  unimplemented; real OBS/YouTube streaming unimplemented. Not ready for a
-  church broadcast.
+- Hardware status: one successful camera access test at `192.168.100.76` with
+  Wi-Fi connected; sustained network reliability and live video decode in OBS
+  remain unverified. Mixer audio connection is unverified; PTZ control and real
+  OBS/YouTube streaming are unimplemented. Not ready for a church broadcast.
 
 ## Pull request status
 
