@@ -23,8 +23,8 @@ Camera power ── existing TRENDnet PoE injector
 The camera is one PTZOptics Move 4K, model PT30X-4K-WH-G3, with 30× optical
 zoom. The camera's PoE and HDMI-to-TV connections must be preserved. The Mac
 mini is intended to run OBS and the local backend; the iPad runs the dashboard.
-OBS is currently not receiving the camera's live video or audio. The
-church-mixer-to-Mac audio connection is not yet verified. The product is
+The camera live video and audio are now reported as received in OBS. The
+specific church-mixer-to-Mac audio path remains unverified. The product is
 intended for one camera, one audio feed, and one YouTube destination. Do not
 enable macOS Internet Sharing or IP forwarding as an MVP workaround.
 
@@ -33,9 +33,9 @@ while the Mac was also connected to Wi-Fi. Earlier tests at camera
 `192.168.1.76` with Mac Ethernet `192.168.1.10` and Wi-Fi `192.168.1.206`
 found the camera accessible with Wi-Fi disabled, but unreliable with both
 interfaces enabled. The new result is evidence of successful simultaneous
-access in that test, not proof of sustained reliability or video delivery to
-OBS. Confirm and record the current Mac Ethernet settings and repeat the test
-before calling the network validated. Make no network changes without a
+access in that test; OBS is now reported to receive camera live video and
+audio. Confirm and record the current Mac Ethernet settings and repeat the
+test before calling network reliability validated. Make no network changes without a
 backed-up, supervised maintenance and rollback plan.
 
 ## MVP features and screens
@@ -91,11 +91,12 @@ broadcast system:
   capture, recording, or YouTube stream.
 - Automated tests cover contracts, API transitions/errors, and dashboard
   behavior. They do not verify hardware.
-- Hardware status: camera web access at `192.168.100.76` succeeded once with
-  Wi-Fi connected, but OBS currently receives neither camera live video nor
-  audio. Sustained network reliability and OBS video decode remain unverified;
-  mixer-to-Mac audio routing is unverified. PTZ control and real YouTube
-  streaming are unimplemented. Not ready for a church broadcast.
+- Hardware status: camera web access at `192.168.100.76` succeeded with Wi-Fi
+  connected, and camera live video and audio are now reported in OBS. Sustained
+  network reliability and the source/route of OBS audio have not been
+  independently documented here. The app still has no physical PTZ control or
+  real OBS/YouTube integration; YouTube streaming from the app is unimplemented.
+  OBS input success alone does not validate the app or a complete broadcast.
 
 ## Pull request status
 
