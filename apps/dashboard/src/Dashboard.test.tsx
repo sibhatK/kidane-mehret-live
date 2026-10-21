@@ -2,6 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Status } from '@kidane/shared'
+import { CameraPreview } from './CameraPreview'
 import { Dashboard } from './Dashboard'
 import { requestStatus } from './api'
 
@@ -35,10 +36,35 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+describe('MediaMTX preview', () => {
+  it('shows an unavailable state when no valid preview URL is configured', () => {
+    for (const url of [undefined, 'not a URL', 'javascript:alert(1)']) {
+      const html = renderToStaticMarkup(createElement(CameraPreview, { url }))
+      expect(html).toContain('Preview unavailable')
+      expect(html).not.toContain('<iframe')
+    }
+  })
+
+  it('embeds the MediaMTX player with muted inline autoplay enabled', () => {
+    const html = renderToStaticMarkup(
+      createElement(CameraPreview, { url: 'http://192.168.1.206:8889/live' }),
+    )
+    const encodedSrc = html.match(/src="([^"]+)"/)?.[1]
+    expect(encodedSrc).toBeDefined()
+    const src = new URL(encodedSrc!.replaceAll('&amp;', '&'))
+    expect(src.origin).toBe('http://192.168.1.206:8889')
+    expect(src.pathname).toBe('/live')
+    expect(src.searchParams.get('autoplay')).toBe('true')
+    expect(src.searchParams.get('muted')).toBe('true')
+    expect(src.searchParams.get('playsInline')).toBe('true')
+    expect(html).toContain('allow="autoplay; fullscreen; picture-in-picture"')
+  })
+})
+
 describe('dashboard safety and controls', () => {
   it('labels all connections and controls as simulated, with no video element', () => {
     const html = render(status)
-    expect(html).toContain('SIMULATION ONLY')
+    expect(html).toContain('CONTROLS SIMULATED')
     expect(html.match(/Connected \(mock\)/g)).toHaveLength(4)
     for (const label of [
       'Wide',
@@ -51,7 +77,7 @@ describe('dashboard safety and controls', () => {
       expect(html).toContain(label)
     }
     expect(html).toContain('aria-pressed="true">Altar')
-    expect(html).toContain('No video preview')
+    expect(html).toContain('Preview unavailable')
     expect(html).not.toContain('<video')
     expect(html).not.toContain('<iframe')
   })

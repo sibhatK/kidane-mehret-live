@@ -68,6 +68,46 @@ npm ci
 npm run dev
 ```
 
+### Optional OBS preview
+
+MediaMTX runs on the Mac mini. Set `MEDIAMTX_LAN_IP` to the Mac's current
+Wi-Fi/LAN address (replace the example address), then run from the repository
+root:
+
+```sh
+export MEDIAMTX_LAN_IP=192.168.1.206
+docker compose up -d
+```
+
+Docker Desktop publishes WebRTC HTTP `8889/tcp` and ICE `8189/udp`; the
+advertised LAN address lets iPad Safari reach the Mac rather than Docker's
+private container address. Keep these ports on the trusted local network.
+Stop MediaMTX with `docker compose down`.
+This LAN preview setup is for the Mac mini, not Codespaces forwarding.
+
+OBS's existing primary output can remain set to YouTube with local recording
+unchanged. To add MediaMTX as a second output, install a macOS-compatible
+[OBS Multi-RTMP plugin](https://github.com/sorayuki/obs-multi-rtmp/releases)
+(current release offers a universal macOS package). This third-party plugin is
+needed because OBS's primary stream output is already used by YouTube; it is
+not an application dependency. In the plugin, add a secondary **WebRTC
+(WHIP)** target at `http://127.0.0.1:8889/live/whip`. Do not replace the
+existing YouTube target or change the recording output. Confirm plugin/OBS
+compatibility and test both existing outputs after setup.
+
+Set the dashboard URL in the ignored file `apps/dashboard/.env.local`, using
+the Mac's actual Wi-Fi/LAN address in place of the example, then restart Vite:
+
+```dotenv
+VITE_MEDIAMTX_WEBRTC_URL=http://192.168.1.206:8889/live
+```
+
+The dashboard embeds MediaMTX's player with muted autoplay and inline playback;
+its player reports a missing stream/connection. A missing or invalid dashboard
+URL shows an unavailable placeholder. The `<500 ms` goal and iPad Safari
+playback still require measurement on the church LAN; neither is verified by
+local builds or tests.
+
 Open port 5173 for the dashboard. In Codespaces, keep the forwarded port
 private; Vite proxies API requests to the local agent. Useful checks:
 
@@ -82,13 +122,15 @@ npm run build
 The current app is a tested **simulation foundation**, not a production
 broadcast system:
 
-- React/Vite dashboard renders simulated status, three preset controls, and
-  Prepare/Go Live/End controls. It does **not** display a live camera preview.
+- React/Vite dashboard renders simulated status and controls. It displays the
+  live OBS program only when the optional MediaMTX preview is configured; it
+  does not control OBS or start/stop the YouTube stream.
 - Fastify provides `GET /api/status` and `POST /api/commands`. Zod contracts
   validate mock state and commands; state is in memory and resets on restart.
-- Camera, audio, and OBS adapters are mocks. Selecting presets and starting a
-  broadcast change mock state only; there is no physical PTZ movement, media
-  capture, recording, or YouTube stream.
+- Camera, audio, and OBS status/control adapters are mocks. Selecting presets
+  and starting a broadcast change mock state only; the MediaMTX preview is a
+  separate OBS feed. There is no physical PTZ control, recording management,
+  or app-managed YouTube stream.
 - Automated tests cover contracts, API transitions/errors, and dashboard
   behavior. They do not verify hardware.
 - Hardware status: camera web access at `192.168.100.76` succeeded with Wi-Fi

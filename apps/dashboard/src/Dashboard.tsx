@@ -4,6 +4,7 @@ import {
   type Command,
   type Status,
 } from '@kidane/shared'
+import { CameraPreview } from './CameraPreview'
 
 interface Props {
   status: Status | null
@@ -42,13 +43,14 @@ export function Dashboard({ status, busy, loading, error, onCommand }: Props) {
           </p>
         </div>
         <span className="rounded-full border border-amber-300/50 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-200">
-          SIMULATION ONLY
+          CONTROLS SIMULATED
         </span>
       </header>
 
       <aside className="rounded-2xl border border-amber-300/40 bg-amber-300/10 p-4 text-amber-100">
-        All equipment and controls are simulated. No camera moves, no audio is
-        sent, and nothing streams to YouTube.
+        Camera presets and broadcast controls are simulated. A configured
+        preview shows the live OBS program; this dashboard does not start or
+        stop YouTube streaming or recording.
       </aside>
 
       <div role="status" aria-live="polite">
@@ -105,17 +107,7 @@ export function Dashboard({ status, busy, loading, error, onCommand }: Props) {
           <h2 id="camera-heading" className="mt-2 text-2xl font-semibold">
             Camera presets
           </h2>
-          <div className="mt-5 flex min-h-44 flex-col items-center justify-center rounded-xl border border-dashed border-slate-500 bg-slate-950/40 p-6 text-center">
-            <span aria-hidden="true" className="text-4xl text-amber-200">
-              ✝
-            </span>
-            <p className="mt-3 font-semibold">
-              No video preview · simulated camera
-            </p>
-            <p className="mt-1 text-sm text-slate-300">
-              Selected frame: {status?.camera.preset ?? 'Unknown'}
-            </p>
-          </div>
+          <CameraPreview url={import.meta.env.VITE_MEDIAMTX_WEBRTC_URL} />
           <div
             role="group"
             aria-label="Simulated camera presets"

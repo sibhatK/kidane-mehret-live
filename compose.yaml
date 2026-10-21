@@ -1,0 +1,15 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.21.2
+    restart: unless-stopped
+    environment:
+      MTX_RTSP: 'no'
+      MTX_RTMP: 'no'
+      MTX_HLS: 'no'
+      MTX_WEBRTC: 'yes'
+      MTX_SRT: 'no'
+      MTX_MOQ: 'no'
+      MTX_WEBRTCADDITIONALHOSTS: "${MEDIAMTX_LAN_IP:?Set MEDIAMTX_LAN_IP to the Mac's Wi-Fi IPv4 address}"
+    ports:
+      - '8889:8889/tcp'
+      - '8189:8189/udp'
