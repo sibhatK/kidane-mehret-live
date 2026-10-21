@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { Command, Status } from '@kidane/shared'
-import { requestStatus } from './api'
+import type { AudioMeter, Command, Status } from '@kidane/shared'
+import { requestObsAudioMeters, requestStatus } from './api'
 import { Dashboard } from './Dashboard'
 
 export default function LiveApp() {
@@ -8,6 +8,8 @@ export default function LiveApp() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [audioMeters, setAudioMeters] = useState<AudioMeter[]>([])
+  const obsMode = status?.mode === 'obs'
 
   useEffect(() => {
     if (busy) return
@@ -43,6 +45,28 @@ export default function LiveApp() {
     }
   }, [busy])
 
+  useEffect(() => {
+    if (!obsMode) return
+
+    let stopped = false
+    let meterTimer: ReturnType<typeof setTimeout>
+    async function refreshMeters() {
+      try {
+        const next = await requestObsAudioMeters()
+        if (!stopped) setAudioMeters(next)
+      } catch {
+        if (!stopped) setAudioMeters([])
+      } finally {
+        if (!stopped) meterTimer = setTimeout(() => void refreshMeters(), 250)
+      }
+    }
+    void refreshMeters()
+    return () => {
+      stopped = true
+      clearTimeout(meterTimer)
+    }
+  }, [obsMode])
+
   async function send(command: Command) {
     if (busy) return
     setBusy(true)
@@ -51,7 +75,7 @@ export default function LiveApp() {
       setStatus(await requestStatus(command))
     } catch {
       setStatus(null)
-      setError('Simulation command failed. Waiting for a fresh agent status.')
+      setError('Command failed. Waiting for a fresh agent status.')
     } finally {
       setBusy(false)
     }
@@ -63,6 +87,7 @@ export default function LiveApp() {
       busy={busy}
       error={error}
       loading={loading}
+      audioMeters={obsMode ? audioMeters : []}
       onCommand={(command) => {
         void send(command)
       }}

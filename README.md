@@ -23,19 +23,21 @@ Camera power ── existing TRENDnet PoE injector
 The camera is one PTZOptics Move 4K, model PT30X-4K-WH-G3, with 30× optical
 zoom. The camera's PoE and HDMI-to-TV connections must be preserved. The Mac
 mini is intended to run OBS and the local backend; the iPad runs the dashboard.
-The camera live video and audio are now reported as received in OBS. The
-specific church-mixer-to-Mac audio path remains unverified. The product is
-intended for one camera, one audio feed, and one YouTube destination. Do not
-enable macOS Internet Sharing or IP forwarding as an MVP workaround.
+A live OBS test has succeeded, with clear video and audio reported by the
+church team. The team has since confirmed the simultaneous network and
+mixer-audio checks are verified. Exact mixer wiring and test/recording evidence
+still need to be recorded. The product is intended for one camera, one audio
+feed, and one YouTube destination. Do not enable macOS Internet Sharing or IP
+forwarding as an MVP workaround.
 
 **Network status:** the camera was successfully reached at `192.168.100.76`
 while the Mac was also connected to Wi-Fi. Earlier tests at camera
 `192.168.1.76` with Mac Ethernet `192.168.1.10` and Wi-Fi `192.168.1.206`
 found the camera accessible with Wi-Fi disabled, but unreliable with both
-interfaces enabled. The new result is evidence of successful simultaneous
-access in that test; OBS is now reported to receive camera live video and
-audio. Confirm and record the current Mac Ethernet settings and repeat the
-test before calling network reliability validated. Make no network changes without a
+interfaces enabled. The church team now confirms the later simultaneous
+camera/Wi-Fi test and mixer-audio path are verified; the successful OBS live
+test had clear video and audio. Record the current Mac Ethernet settings and
+test evidence for future maintenance. Make no network changes without a
 backed-up, supervised maintenance and rollback plan.
 
 ## MVP features and screens
@@ -55,8 +57,9 @@ Keep V1 to three screens for the volunteer workflow:
 Basic settings should be limited to values required to connect the single
 camera, audio feed, OBS, and one YouTube destination; place them in context or
 an in-screen panel, not a separate settings screen. Keep credentials out of the
-dashboard wherever possible. Real camera and broadcast controls are not
-implemented; the optional live OBS preview setup is described below.
+dashboard. OBS stream controls are available in the explicitly configured local
+OBS mode described below. Camera PTZ remains unintegrated; the optional live
+OBS preview is provided separately through MediaMTX.
 
 ## Installation and development
 
@@ -117,36 +120,59 @@ npm test
 npm run build
 ```
 
+To enable OBS mode, turn on OBS WebSocket Server in OBS and set its password.
+In the ignored root `.env` file, set the OBS URL and password:
+
+```dotenv
+OBS_WEBSOCKET_URL=ws://192.168.1.177:4455
+OBS_WEBSOCKET_PASSWORD=<your OBS WebSocket password>
+```
+
+authentication; use it only on a trusted, private network. Browser confirmation
+The agent loads `.env` at startup. With neither variable set, the app remains in
+simulation mode; a URL without a password is rejected. Never commit the
+password. In OBS mode, Prepare checks the OBS connection and stream state,
+Start Livestream and End Broadcast require confirmation, and stream/recording
+status comes from OBS. OBS input meter events appear by source name; their
+mapping to the church mixer is not yet verified. When configured, MediaMTX
+provides the browser video preview. Verify audio in OBS before starting, then
+confirm YouTube delivery in YouTube Studio. Camera PTZ remains unintegrated.
+The dashboard has no user authentication; use it only on a trusted, private
+network. Browser confirmation is not access control.
+
 ## Current implementation and hardware status
 
-The current app is a tested **simulation foundation**, not a production
-broadcast system:
+The current app is a **simulation foundation with opt-in OBS WebSocket control
+and optional MediaMTX preview**, not a production broadcast system:
 
-- React/Vite dashboard renders simulated status and controls. It displays the
-  live OBS program only when the optional MediaMTX preview is configured; it
-  does not control OBS or start/stop the YouTube stream.
-- Fastify provides `GET /api/status` and `POST /api/commands`. Zod contracts
-  validate mock state and commands; state is in memory and resets on restart.
-- Camera, audio, and OBS status/control adapters are mocks. Selecting presets
-  and starting a broadcast change mock state only; the MediaMTX preview is a
-  separate OBS feed. There is no physical PTZ control, recording management,
-  or app-managed YouTube stream.
+- React/Vite dashboard renders simulated status and controls by default. In OBS
+  mode it reports OBS stream/recording status, displays OBS input meters, and
+  can start/stop the configured OBS stream after confirmation. When MediaMTX is
+  configured, the dashboard embeds its WebRTC preview.
+- Fastify provides `GET /api/status`, `POST /api/commands`, and OBS meter/status
+  endpoints. Zod contracts validate public state; agent state is in memory.
+- Camera and audio health adapters and physical PTZ control remain mocks. The
+  OBS meter source is not yet mapped specifically to the church mixer. OBS
+  output-active does not independently prove YouTube delivery, and the app
+  does not configure the YouTube destination or control recording.
 - Automated tests cover contracts, API transitions/errors, and dashboard
   behavior. They do not verify hardware.
-- Hardware status: camera web access at `192.168.100.76` succeeded with Wi-Fi
-  connected, and camera live video and audio are now reported in OBS. Sustained
-  network reliability and the source/route of OBS audio have not been
-  independently documented here. The app still has no physical PTZ control or
-  real OBS/YouTube integration; YouTube streaming from the app is unimplemented.
-  OBS input success alone does not validate the app or a complete broadcast.
+- Hardware status: the church team confirms repeatable camera access at
+  `192.168.100.76` with Wi-Fi connected and verifies the mixer-audio path. A
+  live OBS test succeeded with clear video and audio. Exact mixer wiring and
+  stream/recording evidence still need documentation; physical PTZ movement
+  remains unverified. The church team confirms app-driven OBS start and stop
+  now work. YouTube delivery still needs independent confirmation in YouTube
+  Studio.
 
 ## Pull request status
 
 All repository PRs were reviewed; GitHub's all-states listing returned one PR.
 The repository exposes Copilot agent/reviewer workflows, not a project CI
-workflow. PR check-run access was unavailable (403). Local validation for the
-documentation revision passed lint, 33 tests, and build.
+workflow. PR check-run access was unavailable (403). The prior documentation
+revision passed lint, 33 tests, and build; rerun validation after these OBS
+integration changes.
 
 | PR and title                                                                                                            | GitHub status               | Implemented functionality                                                                 | Evidence/status                                                                                                                                                                                                         | Immediate next action                                                                                                                           |
 | ----------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| [#1 — Bootstrap Kidane Mehret Live mock-only TypeScript monorepo](https://github.com/sibhatK/kidane-mehret-live/pull/1) | Open, not draft, not merged | React/Vite dashboard, Fastify API, shared Zod contracts, mock adapters, scripts and tests | Implemented and locally tested; device and broadcast behavior mocked; church hardware unverified; live preview/stream incomplete. Two outdated review threads remain, though requested fixes are included in `c281adb`. | Review the mock-only foundation and resolve outdated threads; proceed with supervised network and hardware validation before real integrations. |
+| [#1 — Bootstrap Kidane Mehret Live mock-only TypeScript monorepo](https://github.com/sibhatK/kidane-mehret-live/pull/1) | Open, not draft, not merged | React/Vite dashboard, Fastify API, shared Zod contracts, mock adapters, scripts and tests | OBS WebSocket connection and app-driven start/stop confirmed by the church team; camera/audio adapters remain mocked. Church OBS video/audio test succeeded. YouTube delivery and recording behavior remain to be documented. Two older review threads remain; requested fixes are included in `c281adb`. | Verify YouTube delivery and recording state, document evidence, and validate the remaining build/tests. |

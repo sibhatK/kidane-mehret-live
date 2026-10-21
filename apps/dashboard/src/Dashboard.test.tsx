@@ -1,26 +1,37 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Status } from '@kidane/shared'
+import type { AudioMeter, Status } from '@kidane/shared'
 import { CameraPreview } from './CameraPreview'
 import { Dashboard } from './Dashboard'
-import { requestStatus } from './api'
+import { requestObsAudioMeters, requestStatus } from './api'
 
 const status: Status = {
   mode: 'simulated',
   camera: { connection: 'connected', preset: 'Altar' },
   audio: { connection: 'connected', muted: false },
-  obs: { connection: 'connected' },
+  obs: { connection: 'connected', recording: false },
   broadcast: {
     connection: 'connected',
     state: 'idle',
     destination: 'YouTube (simulation only)',
   },
 }
+const obsStatus: Status = {
+  ...status,
+  mode: 'obs',
+  obs: { connection: 'connected', recording: true },
+  broadcast: {
+    connection: 'connected',
+    state: 'streaming',
+    destination: 'OBS output',
+  },
+}
 function render(
   current: Status | null,
   busy = false,
   error: string | null = null,
+  audioMeters: AudioMeter[] = [],
 ) {
   return renderToStaticMarkup(
     createElement(Dashboard, {
@@ -28,12 +39,14 @@ function render(
       busy,
       loading: false,
       error,
+      audioMeters,
       onCommand: vi.fn(),
     }),
   )
 }
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 describe('MediaMTX preview', () => {
@@ -62,7 +75,7 @@ describe('MediaMTX preview', () => {
 })
 
 describe('dashboard safety and controls', () => {
-  it('labels all connections and controls as simulated, with no video element', () => {
+  it('labels controls as simulated and shows an unavailable preview without configuration', () => {
     const html = render(status)
     expect(html).toContain('CONTROLS SIMULATED')
     expect(html.match(/Connected \(mock\)/g)).toHaveLength(4)
@@ -80,6 +93,38 @@ describe('dashboard safety and controls', () => {
     expect(html).toContain('Preview unavailable')
     expect(html).not.toContain('<video')
     expect(html).not.toContain('<iframe')
+  })
+
+  it('shows the OBS snapshot and audio levels without implying mixer mapping or PTZ control', () => {
+    vi.stubEnv(
+      'VITE_MEDIAMTX_WEBRTC_URL',
+      'http://192.168.1.206:8889/live',
+    )
+    const html = render(
+      obsStatus,
+      false,
+      null,
+      [
+        {
+          inputName: 'Mixer Input',
+          level: 0.7,
+          peakDb: -18,
+          sampledAt: Date.now(),
+        },
+      ],
+    )
+    expect(html).toContain('OBS CONTROL')
+    expect(html).toContain('OBS output active')
+    expect(html).toContain('Recording active')
+    expect(html).toContain('Mixer Input')
+    expect(html).toContain('70')
+    expect(html).not.toContain('<audio')
+    expect(html).toContain('Live OBS program preview')
+    expect(html).toContain('Mixer mapping unverified')
+    expect(html).toContain('PTZ control not integrated')
+    expect(html).toContain('Verify the scene preview and audio meters in OBS')
+    expect(html).not.toContain('Connected (mock)')
+    expect(html).not.toContain('SIMULATION ONLY')
   })
 
   it.each([
@@ -108,6 +153,21 @@ describe('dashboard safety and controls', () => {
 })
 
 describe('validated API client', () => {
+  it('fetches and validates OBS audio meter samples without caching', async () => {
+    const meters: AudioMeter[] = [
+      { inputName: 'Mixer Input', level: 0.6, peakDb: -24, sampledAt: 123 },
+    ]
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify(meters)))
+    vi.stubGlobal('fetch', fetch)
+    expect(await requestObsAudioMeters()).toEqual(meters)
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/obs/audio-meters',
+      expect.objectContaining({ cache: 'no-store' }),
+    )
+  })
+
   it('fetches and validates status without caching', async () => {
     const fetch = vi
       .fn()

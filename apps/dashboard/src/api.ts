@@ -1,6 +1,8 @@
 import {
+  audioMetersSchema,
   commandSchema,
   statusSchema,
+  type AudioMeter,
   type Command,
   type Status,
 } from '@kidane/shared'
@@ -31,5 +33,20 @@ export async function requestStatus(
   } finally {
     clearTimeout(timeout)
     signal?.removeEventListener('abort', abort)
+  }
+}
+
+export async function requestObsAudioMeters(): Promise<AudioMeter[]> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 2000)
+  try {
+    const response = await fetch('/api/obs/audio-meters', {
+      signal: controller.signal,
+      cache: 'no-store',
+    })
+    if (!response.ok) throw new Error('OBS audio meters are unavailable')
+    return audioMetersSchema.parse(await response.json())
+  } finally {
+    clearTimeout(timeout)
   }
 }

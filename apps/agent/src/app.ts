@@ -2,6 +2,7 @@ import Fastify, { type FastifyError } from 'fastify'
 import {
   canExecute,
   commandSchema,
+  audioMetersSchema,
   statusSchema,
   type Status,
 } from '@kidane/shared'
@@ -19,7 +20,7 @@ export function buildApp(adapters: Adapters = createMockAdapters()) {
       adapters.obs.getBroadcastStatus(),
     ])
     return statusSchema.parse({
-      mode: 'simulated',
+      mode: adapters.mode,
       camera,
       audio,
       obs,
@@ -32,17 +33,26 @@ export function buildApp(adapters: Adapters = createMockAdapters()) {
     reply.header('X-Content-Type-Options', 'nosniff')
   })
 
+  app.addHook('onClose', async () => adapters.obs.close())
+
   app.get<{ Reply: Status }>('/api/status', async () => getStatus())
+
+  app.get('/api/obs/audio-meters', async (_request, reply) => {
+    if (adapters.mode !== 'obs') {
+      return reply.code(404).send({ error: 'OBS meters are unavailable' })
+    }
+    return audioMetersSchema.parse(await adapters.obs.getAudioMeters())
+  })
 
   app.post('/api/commands', async (request, reply) => {
     const parsed = commandSchema.safeParse(request.body)
     if (!parsed.success) {
-      return reply.code(400).send({ error: 'Invalid simulation command' })
+      return reply.code(400).send({ error: 'Invalid command' })
     }
     if (commandPending) {
       return reply
         .code(409)
-        .send({ error: 'Another simulation command is pending' })
+        .send({ error: 'Another command is pending' })
     }
     commandPending = true
     try {
@@ -51,7 +61,7 @@ export function buildApp(adapters: Adapters = createMockAdapters()) {
       if (!canExecute(status, command)) {
         return reply
           .code(409)
-          .send({ error: 'Simulation command is not available' })
+          .send({ error: 'Command is not available' })
       }
       if (command.type === 'preset') {
         await adapters.camera.selectPreset(command.preset)
@@ -61,7 +71,7 @@ export function buildApp(adapters: Adapters = createMockAdapters()) {
             await adapters.obs.prepare()
             break
           case 'go-live':
-            await adapters.obs.startSimulation()
+            await adapters.obs.startStream()
             break
           case 'end':
             await adapters.obs.end()

@@ -10,7 +10,7 @@ const status: Status = {
   mode: 'simulated',
   camera: { connection: 'connected', preset: 'Wide' },
   audio: { connection: 'connected', muted: false },
-  obs: { connection: 'connected' },
+  obs: { connection: 'connected', recording: false },
   broadcast: {
     connection: 'connected',
     state: 'idle',
@@ -19,8 +19,15 @@ const status: Status = {
 }
 
 describe('shared safety contracts', () => {
-  it('requires simulation mode and never accepts a live broadcast state', () => {
+  it('accepts simulation or OBS mode but rejects unknown modes and states', () => {
     expect(statusSchema.parse(status)).toEqual(status)
+    expect(
+      statusSchema.parse({
+        ...status,
+        mode: 'obs',
+        broadcast: { ...status.broadcast, destination: 'OBS output' },
+      }).mode,
+    ).toBe('obs')
     expect(statusSchema.safeParse({ ...status, mode: 'live' }).success).toBe(
       false,
     )
@@ -83,11 +90,49 @@ describe('shared safety contracts', () => {
       canExecute(
         {
           ...status,
-          obs: { connection: 'disconnected' },
+          obs: { connection: 'disconnected', recording: false },
           broadcast: { ...status.broadcast, state: 'simulating' },
         },
         { type: 'broadcast', action: 'end' },
       ),
     ).toBe(true)
+  })
+
+  it('requires OBS connection, prepared state, and confirmation for a real stream', () => {
+    const obsStatus: Status = {
+      ...status,
+      mode: 'obs',
+      camera: { connection: 'disconnected', preset: 'Wide' },
+      audio: { connection: 'disconnected', muted: true },
+      obs: { connection: 'connected', recording: false },
+      broadcast: {
+        connection: 'connected',
+        state: 'prepared',
+        destination: 'OBS output',
+      },
+    }
+    expect(
+      canExecute(obsStatus, { type: 'broadcast', action: 'go-live' }),
+    ).toBe(false)
+    expect(
+      canExecute(obsStatus, {
+        type: 'broadcast',
+        action: 'go-live',
+        confirmed: true,
+      }),
+    ).toBe(true)
+    expect(
+      canExecute(
+        { ...obsStatus, obs: { connection: 'disconnected', recording: false } },
+        {
+          type: 'broadcast',
+          action: 'go-live',
+          confirmed: true,
+        },
+      ),
+    ).toBe(false)
+    expect(canExecute(obsStatus, { type: 'preset', preset: 'Altar' })).toBe(
+      false,
+    )
   })
 })

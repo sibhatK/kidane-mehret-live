@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Mock-only livestream control foundation for Kidane Mehret Church",
+  "description": "Local livestream controls for Kidane Mehret Church",
   "workspaces": [
     "apps/*",
     "packages/*"
