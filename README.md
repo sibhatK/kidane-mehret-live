@@ -1,115 +1,94 @@
 # Kidane Mehret Live
 
-Kidane Mehret Live is a beginner-friendly control platform for the Sunday Divine
-Liturgy livestream at **Kidane Mehret Eritrean Ge'ez Rite Church, Atlanta,
-Georgia**. The goal is for volunteers to check camera, audio, and internet
-health; prepare; start and monitor; then safely stop a broadcast from an iPad or
-Mac without operating OBS directly. Reliability, simplicity, and audio quality
-take priority.
+## Project overview
 
-> **Current application is simulation-only.** No camera moves, audio is sent,
-> recording is made, or stream is sent to YouTube. The dashboard and backend
-> use in-memory mocks and are not ready for church broadcasting.
+Kidane Mehret Live is a simple livestream control dashboard for Kidane Mehret
+Eritrean Ge'ez Rite Church in Atlanta. The goal is to help volunteers check
+equipment health, prepare, start, monitor, and end one YouTube livestream from
+an iPad without operating OBS directly.
 
-## Project status
-
-**As of 2026-10-21:** the TypeScript foundation is implemented, but its device
-and broadcast behavior is mocked. No milestone has passed physical hardware or
-church-pilot validation. Current blockers and criteria are in
-[docs/WORKPLAN.md](docs/WORKPLAN.md).
-
-| PR                                                         | Description                             | GitHub Status               | Milestone        | Implementation Status                                                                                                                                                                                                                                  | Next Action                                                                                                                                         |
-| ---------------------------------------------------------- | --------------------------------------- | --------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [#1](https://github.com/sibhatK/kidane-mehret-live/pull/1) | Bootstrap mock-only TypeScript monorepo | Open, non-draft, not merged | M2/M3 foundation | Implemented: Fastify API, shared Zod contracts, React dashboard, and mock adapters. Tested locally: 33 tests pass; lint/build pass. Hardware-validated: no. Two outdated review threads remain unresolved; requested changes are present in `c281adb`. | Review/resolve the outdated threads and review the mock-only scope. Continue M0 hardware/network validation; do not treat this PR as a live system. |
-
-GitHub listed two branches (`main` and this task branch). PR #1 changes the
-initial application foundation; it does not implement the confirmed hardware
-topology, real OBS/PTZ control, or any validated broadcast. No other PRs were
-returned by the repository's all-states PR listing. See the
-[workplan](docs/WORKPLAN.md) for milestone status and scope.
-
-### Immediate next three engineering tasks
-
-1. Complete M0 in a supervised maintenance window: back up current settings,
-   confirm route cleanup, and validate simultaneous Wi-Fi/Ethernet on a
-   controlled network plan. Do not change church equipment remotely.
-2. Verify actual camera video in OBS and identify/test the mixer-to-Mac audio
-   path before any stream test (M1).
-3. After M0/M1 evidence, design the Mac-mini-to-iPad control boundary and
-   security model; the current agent listens only on loopback and has no
-   authentication.
-
-## Locked V1 scope
-
-V1 is one PTZOptics camera, one church audio feed, one YouTube destination, an
-OBS-based Mac mini streaming engine, and a React dashboard controlled from an
-iPad. It includes three PTZ presets (Wide, Altar, Reader), Prepare/Start/Stop,
-real device/stream status, essential preflight and failure reporting, safe-stop
-confirmation, and local recording where supported.
-
-Multiple cameras, AI directing, a custom encoder, cloud hosting/databases,
-advanced scheduling, elaborate graphics, multilingual UI, native mobile apps,
-and unrelated infrastructure/features are excluded. Authentication is not a
-feature-expansion target, but the minimum security required before safe local
-remote operation is mandatory. Proposals outside V1 belong in a future
-enhancements list and require explicit change approval; do not add them
-implicitly. The current simulation does not yet implement most operational V1
-requirements.
-
-## Architecture and repository
+## Architecture and equipment connections
 
 ```text
-apps/dashboard/       React + Vite + Tailwind iPad/desktop interface
-apps/agent/           Fastify API, command handling, mock adapters
-packages/shared/      Zod schemas, TypeScript contracts, workflow guards
-docs/                 Architecture, network findings, and milestone workplan
+PTZOptics Move 4K ── Ethernet ──┐
+                                Mac mini (OBS + Node.js/TypeScript backend)
+Church audio mixer ─────────────┘           │
+                                            └── Church Wi-Fi / YouTube
+iPad (React/Vite dashboard) ── church Wi-Fi ── Mac mini
+
+Camera HDMI ── existing connection to church TV
+Camera power ── existing TRENDnet PoE injector
 ```
 
-The intended deployment places OBS and the backend agent on the Mac mini; the
-iPad is a control client over church Wi-Fi. The Mac has separate camera Ethernet
-and internet Wi-Fi interfaces. This is an application-level intermediary, not
-macOS Internet Sharing or IP forwarding. Today the agent binds to
-`127.0.0.1:3001`; Vite proxies `/api` to it during development. Direct iPad access
-to a loopback-only agent is therefore not implemented. Review
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-[docs/NETWORK_TROUBLESHOOTING.md](docs/NETWORK_TROUBLESHOOTING.md) before
-designing the real connection.
+The camera is one PTZOptics Move 4K, model PT30X-4K-WH-G3, with 30× optical
+zoom. The camera's PoE and HDMI-to-TV connections must be preserved. The Mac
+mini is intended to run OBS and the local backend; the iPad runs the dashboard.
+The church mixer-to-Mac audio connection is not yet verified. The product is
+intended for one camera, one audio feed, and one YouTube destination. Do not
+enable macOS Internet Sharing or IP forwarding as an MVP workaround.
 
-The current adapter implementations are mocks. Shared status requires
-`mode: "simulated"` and excludes a live broadcast state. No stream key or camera
-credentials belong in browser code, shared contracts, or `VITE_*` variables.
-The project currently has no credential configuration or authentication.
+**Network issue:** observed addresses are camera `192.168.1.76`, Mac Ethernet
+`192.168.1.10`, and Mac Wi-Fi `192.168.1.206`. The camera is accessible when
+Wi-Fi is disabled, and internet works through Wi-Fi. Simultaneous connectivity
+is unreliable; a temporary route did not restore camera access. Moving camera
+Ethernet and the camera to a separate subnet has been proposed but is not
+verified or implemented. Make no network changes without a backed-up,
+supervised maintenance and rollback plan.
 
-## Development
+## MVP features and screens
 
-Prerequisites: Node.js `^20.19.0 || ^22.13.0 || >=24.0.0` and npm 10+.
+Keep V1 to a small volunteer workflow:
+
+- **Status:** camera, audio, OBS, internet/broadcast connection health and
+  preflight failures.
+- **Camera:** live camera preview and Wide, Altar, Reader presets.
+- **Broadcast:** Prepare, Go Live, monitor, and End Broadcast.
+- **Basic settings:** only settings required to operate this workflow safely.
+
+## Installation and development
+
+Requires Node.js `^20.19.0 || ^22.13.0 || >=24.0.0` and npm 10+.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Open port 5173 for the dashboard. Keep Codespaces forwarding private; the
-dashboard's development proxy reaches the loopback agent on port 3001.
+Open port 5173 for the dashboard. In Codespaces, keep the forwarded port
+private; Vite proxies API requests to the local agent. Useful checks:
 
-| Command         | Purpose                                        |
-| --------------- | ---------------------------------------------- |
-| `npm run build` | Build shared contracts, agent, and dashboard   |
-| `npm run lint`  | Run ESLint and Prettier checks                 |
-| `npm test`      | Build contracts and run Vitest                 |
-| `npm start`     | Start the compiled agent on loopback port 3001 |
+```sh
+npm run lint
+npm test
+npm run build
+```
 
-The repository includes Vitest tests for shared safety contracts, API
-transitions/error handling, and dashboard simulation behavior. This checkout's
-local validation on 2026-10-21 passed `npm run lint`, all 33 tests via
-`npm test`, and `npm run build`. GitHub Actions currently lists Copilot
-coding-agent and Copilot review workflows, not a project build/test workflow.
-The PR check-run API was inaccessible to this review (403); do not interpret
-agent-workflow completion as application CI. Run the local commands above for
-code validation.
+## Current implementation and hardware status
 
-## Detailed documents
+The current app is a tested **simulation foundation**, not a production
+broadcast system:
 
-- [Architecture and integration boundaries](docs/ARCHITECTURE.md)
-- [Church network findings and maintenance procedure](docs/NETWORK_TROUBLESHOOTING.md)
-- [Locked scope, milestones, and acceptance criteria](docs/WORKPLAN.md)
+- React/Vite dashboard renders simulated status, three preset controls, and
+  Prepare/Go Live/End controls. It does **not** display a live camera preview.
+- Fastify provides `GET /api/status` and `POST /api/commands`. Zod contracts
+  validate mock state and commands; state is in memory and resets on restart.
+- Camera, audio, and OBS adapters are mocks. Selecting presets and starting a
+  broadcast change mock state only; there is no physical PTZ movement, media
+  capture, recording, or YouTube stream.
+- Automated tests cover contracts, API transitions/errors, and dashboard
+  behavior. They do not verify hardware.
+- Hardware status: dual Wi-Fi/Ethernet camera access unresolved; live video
+  decode in OBS unverified; mixer audio connection unverified; PTZ control
+  unimplemented; real OBS/YouTube streaming unimplemented. Not ready for a
+  church broadcast.
+
+## Pull request status
+
+All repository PRs were reviewed; GitHub's all-states listing returned one PR.
+The repository exposes Copilot agent/reviewer workflows, not a project CI
+workflow. PR check-run access was unavailable (403). Local validation for the
+documentation revision passed lint, 33 tests, and build.
+
+| PR and title                                                                                                            | GitHub status               | Implemented functionality                                                                 | Evidence/status                                                                                                                                                                                                         | Immediate next action                                                                                                                           |
+| ----------------------------------------------------------------------------------------------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#1 — Bootstrap Kidane Mehret Live mock-only TypeScript monorepo](https://github.com/sibhatK/kidane-mehret-live/pull/1) | Open, not draft, not merged | React/Vite dashboard, Fastify API, shared Zod contracts, mock adapters, scripts and tests | Implemented and locally tested; device and broadcast behavior mocked; church hardware unverified; live preview/stream incomplete. Two outdated review threads remain, though requested fixes are included in `c281adb`. | Review the mock-only foundation and resolve outdated threads; proceed with supervised network and hardware validation before real integrations. |
