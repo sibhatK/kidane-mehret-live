@@ -56,7 +56,7 @@ describe('MediaMTX preview', () => {
     expect(src.pathname).toBe('/live')
     expect(src.searchParams.get('autoplay')).toBe('true')
     expect(src.searchParams.get('muted')).toBe('true')
-    expect(src.searchParams.get('playsInline')).toBe('true')
+    expect(src.searchParams.get('playsinline')).toBe('true')
     expect(html).toContain('allow="autoplay; fullscreen; picture-in-picture"')
   })
 })

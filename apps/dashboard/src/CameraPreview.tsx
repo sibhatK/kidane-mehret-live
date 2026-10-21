@@ -11,7 +11,7 @@ function playerUrl(url: string | undefined) {
       return undefined
     parsed.searchParams.set('autoplay', 'true')
     parsed.searchParams.set('muted', 'true')
-    parsed.searchParams.set('playsInline', 'true')
+    parsed.searchParams.set('playsinline', 'true')
     return parsed.toString()
   } catch {
     return undefined

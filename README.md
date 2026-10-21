@@ -55,9 +55,8 @@ Keep V1 to three screens for the volunteer workflow:
 Basic settings should be limited to values required to connect the single
 camera, audio feed, OBS, and one YouTube destination; place them in context or
 an in-screen panel, not a separate settings screen. Keep credentials out of the
-dashboard wherever possible. A live preview and real controls are product
-requirements, not current functionality: the implementation below remains
-simulation-only.
+dashboard wherever possible. Real camera and broadcast controls are not
+implemented; the optional live OBS preview setup is described below.
 
 ## Installation and development
 
@@ -83,7 +82,8 @@ Docker Desktop publishes WebRTC HTTP `8889/tcp` and ICE `8189/udp`; the
 advertised LAN address lets iPad Safari reach the Mac rather than Docker's
 private container address. Keep these ports on the trusted local network.
 Stop MediaMTX with `docker compose down`.
-This LAN preview setup is for the Mac mini, not Codespaces forwarding.
+Keep `MEDIAMTX_LAN_IP` exported in the shell for Compose commands. This LAN
+preview setup is for the Mac mini, not Codespaces forwarding.
 
 OBS's existing primary output can remain set to YouTube with local recording
 unchanged. To add MediaMTX as a second output, install a macOS-compatible
