@@ -64,6 +64,8 @@ OBS preview is provided separately through MediaMTX.
 ## Installation and development
 
 Requires Node.js `^20.19.0 || ^22.13.0 || >=24.0.0` and npm 10+.
+For Mac mini setup, OBS configuration, and the exact Docker/Node commands, see
+[GETTING_STARTED.md](GETTING_STARTED.md).
 
 ```sh
 npm ci
