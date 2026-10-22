@@ -20,41 +20,83 @@ Optional:
   KIDANE_REPO_DIR=/path/to/checkout
   MEDIAMTX_LAN_IP=192.168.x.x
 
-The script requires Docker Desktop to be installed and running. It never starts
-or stops an OBS/YouTube broadcast. OBS credentials, if entered, are read
-silently from the terminal and stored only in the ignored local .env file.
+If Docker Desktop is missing, the script downloads the official macOS image
+and installs it under ~/Applications. Its first launch may require approval of
+a macOS helper prompt. The script never starts or stops an OBS/YouTube
+broadcast. OBS credentials, if entered, are read silently from the terminal
+and stored only in the ignored local .env file.
 EOF
   exit 0
 fi
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "This bootstrap script supports macOS only."
 
-for required_command in curl git awk networksetup ipconfig; do
+for required_command in curl git awk networksetup ipconfig uname hdiutil ditto open; do
   command -v "$required_command" >/dev/null 2>&1 ||
     fail "Required command '$required_command' is missing."
 done
 
-if ! command -v docker >/dev/null 2>&1; then
-  for docker_candidate in \
-    "$HOME/.docker/bin/docker" \
-    "$HOME/Applications/Docker.app/Contents/Resources/bin/docker" \
-    "/Applications/Docker.app/Contents/Resources/bin/docker"; do
-    if [[ -x "$docker_candidate" ]]; then
-      export PATH="$(dirname "$docker_candidate"):$PATH"
-      break
-    fi
-  done
-fi
-command -v docker >/dev/null 2>&1 ||
-  fail "Install Docker Desktop for Mac first: https://www.docker.com/products/docker-desktop/"
-docker info >/dev/null 2>&1 || {
-  if [[ -d "$HOME/Applications/Docker.app" ]]; then
-    open "$HOME/Applications/Docker.app" || true
-  elif [[ -d "/Applications/Docker.app" ]]; then
-    open "/Applications/Docker.app" || true
+docker_app=""
+for candidate in "$HOME/Applications/Docker.app" "/Applications/Docker.app"; do
+  if [[ -d "$candidate" ]]; then
+    docker_app="$candidate"
+    break
   fi
-  fail "Docker Desktop is not ready. Wait until its engine is running, then rerun this command."
-}
+done
+
+if [[ -z "$docker_app" ]]; then
+  case "$(uname -m)" in
+    arm64) docker_dmg_url="https://desktop.docker.com/mac/main/arm64/Docker.dmg" ;;
+    x86_64) docker_dmg_url="https://desktop.docker.com/mac/main/amd64/Docker.dmg" ;;
+    *) fail "Unsupported Mac architecture: $(uname -m)" ;;
+  esac
+
+  docker_tmp="$(mktemp -d)"
+  docker_mount="$docker_tmp/mount"
+  mkdir -p "$docker_mount"
+  if ! curl -fL "$docker_dmg_url" -o "$docker_tmp/Docker.dmg"; then
+    rm -rf "$docker_tmp"
+    fail "Could not download the official Docker Desktop image."
+  fi
+  if ! hdiutil attach "$docker_tmp/Docker.dmg" -nobrowse -mountpoint "$docker_mount" >/dev/null; then
+    rm -rf "$docker_tmp"
+    fail "Could not mount the Docker Desktop disk image."
+  fi
+  if [[ ! -d "$docker_mount/Docker.app" ]]; then
+    hdiutil detach "$docker_mount" >/dev/null 2>&1 || true
+    rm -rf "$docker_tmp"
+    fail "The downloaded disk image did not contain Docker.app."
+  fi
+
+  mkdir -p "$HOME/Applications"
+  if ! ditto "$docker_mount/Docker.app" "$HOME/Applications/Docker.app"; then
+    hdiutil detach "$docker_mount" >/dev/null 2>&1 || true
+    rm -rf "$docker_tmp"
+    fail "Could not copy Docker Desktop into ~/Applications."
+  fi
+  hdiutil detach "$docker_mount" >/dev/null 2>&1 || true
+  rm -rf "$docker_tmp"
+  docker_app="$HOME/Applications/Docker.app"
+  printf 'Installed Docker Desktop at %s\n' "$docker_app"
+fi
+
+export PATH="$docker_app/Contents/Resources/bin:$HOME/.docker/bin:$PATH"
+command -v docker >/dev/null 2>&1 || fail "Docker CLI was not found inside Docker Desktop."
+
+open "$docker_app" || fail "Could not launch Docker Desktop."
+docker_ready=false
+printf 'Waiting for Docker Desktop. Approve any macOS helper prompt if shown.\n'
+for ((attempt = 1; attempt <= 60; attempt++)); do
+  if docker info >/dev/null 2>&1; then
+    docker_ready=true
+    break
+  fi
+  sleep 3
+done
+
+if [[ "$docker_ready" != true ]]; then
+  fail "Docker Desktop did not become ready within 3 minutes. Open Docker Desktop, approve any prompt, then rerun this command."
+fi
 
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
@@ -63,6 +105,8 @@ if [[ ! -s "$NVM_DIR/nvm.sh" ]]; then
   curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${NVM_VERSION}/install.sh" \
     -o "$nvm_installer"
   PROFILE="$HOME/.zshrc" bash "$nvm_installer"
+  rm -f "$nvm_installer"
+  trap - EXIT
 fi
 [[ -s "$NVM_DIR/nvm.sh" ]] || fail "nvm installation did not create $NVM_DIR/nvm.sh"
 # shellcheck disable=SC1090

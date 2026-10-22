@@ -6,8 +6,10 @@ settings, or start a YouTube broadcast for you.
 
 ## One-Command Setup
 
-On a new Mac mini, first install and launch Docker Desktop using the steps below.
-Then review the bootstrap script before running it:
+On a new Mac mini, review the bootstrap script before running it. It installs
+Docker Desktop from Docker's official macOS download if missing, launches it,
+and waits for the engine. First launch may require you to approve macOS's
+privileged-helper prompt in the Docker Desktop UI.
 
 ```sh
 curl -fsSLo /tmp/kidane-bootstrap-mac.sh \
