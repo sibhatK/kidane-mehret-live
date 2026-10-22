@@ -11,6 +11,35 @@ fail() {
   exit 1
 }
 
+version_is_less_than() {
+  awk -v actual="$1" -v required="$2" 'BEGIN {
+    split(actual, a, /[.]/)
+    split(required, r, /[.]/)
+    for (i = 1; i <= 3; i++) {
+      actual_part = a[i] + 0
+      required_part = r[i] + 0
+      if (actual_part < required_part) exit 0
+      if (actual_part > required_part) exit 1
+    }
+    exit 1
+  }'
+}
+
+check_docker_macos_version() {
+  local app_path="$1"
+  local minimum_version current_version
+  minimum_version="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' \
+    "$app_path/Contents/Info.plist" 2>/dev/null || true)"
+  current_version="$(sw_vers -productVersion)"
+
+  if [[ -n "$minimum_version" ]] &&
+    version_is_less_than "$current_version" "$minimum_version"; then
+    printf 'Docker Desktop requires macOS %s; this Mac has macOS %s. Using native MediaMTX instead.\n' \
+      "$minimum_version" "$current_version"
+    return 1
+  fi
+}
+
 if [[ "${1:-}" == "--help" ]]; then
   cat <<'EOF'
 Usage:
@@ -20,22 +49,23 @@ Optional:
   KIDANE_REPO_DIR=/path/to/checkout
   MEDIAMTX_LAN_IP=192.168.x.x
 
-If Docker Desktop is missing, the script downloads the official macOS image
-and installs it under ~/Applications. Its first launch may require approval of
-a macOS helper prompt. The script never starts or stops an OBS/YouTube
-broadcast. OBS credentials, if entered, are read silently from the terminal
-and stored only in the ignored local .env file.
+If Docker Desktop is compatible, the script can install it under ~/Applications.
+On older macOS versions or when Docker is incompatible, it uses the official,
+checksum-verified native MediaMTX binary instead. The script never starts or
+stops an OBS/YouTube broadcast. OBS credentials, if entered, are read silently
+from the terminal and stored only in the ignored local .env file.
 EOF
   exit 0
 fi
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "This bootstrap script supports macOS only."
 
-for required_command in curl git awk networksetup ipconfig uname hdiutil ditto open; do
+for required_command in curl git awk networksetup ipconfig uname hdiutil ditto open sw_vers; do
   command -v "$required_command" >/dev/null 2>&1 ||
     fail "Required command '$required_command' is missing."
 done
 
+mediamtx_backend="docker"
 docker_app=""
 for candidate in "$HOME/Applications/Docker.app" "/Applications/Docker.app"; do
   if [[ -d "$candidate" ]]; then
@@ -44,7 +74,13 @@ for candidate in "$HOME/Applications/Docker.app" "/Applications/Docker.app"; do
   fi
 done
 
-if [[ -z "$docker_app" ]]; then
+if [[ -z "$docker_app" ]] && version_is_less_than "$(sw_vers -productVersion)" "14.0"; then
+  printf 'macOS %s is too old for current Docker Desktop; using native MediaMTX.\n' \
+    "$(sw_vers -productVersion)"
+  mediamtx_backend="native"
+fi
+
+if [[ "$mediamtx_backend" == "docker" && -z "$docker_app" ]]; then
   case "$(uname -m)" in
     arm64) docker_dmg_url="https://desktop.docker.com/mac/main/arm64/Docker.dmg" ;;
     x86_64) docker_dmg_url="https://desktop.docker.com/mac/main/amd64/Docker.dmg" ;;
@@ -67,35 +103,51 @@ if [[ -z "$docker_app" ]]; then
     rm -rf "$docker_tmp"
     fail "The downloaded disk image did not contain Docker.app."
   fi
-
-  mkdir -p "$HOME/Applications"
-  if ! ditto "$docker_mount/Docker.app" "$HOME/Applications/Docker.app"; then
-    hdiutil detach "$docker_mount" >/dev/null 2>&1 || true
-    rm -rf "$docker_tmp"
-    fail "Could not copy Docker Desktop into ~/Applications."
+  minimum_version="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' \
+    "$docker_mount/Docker.app/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$minimum_version" ]] &&
+    version_is_less_than "$(sw_vers -productVersion)" "$minimum_version"; then
+    printf 'Docker Desktop requires macOS %s; this Mac has macOS %s. Using native MediaMTX.\n' \
+      "$minimum_version" "$(sw_vers -productVersion)"
+    mediamtx_backend="native"
+  else
+    mkdir -p "$HOME/Applications"
+    if ! ditto "$docker_mount/Docker.app" "$HOME/Applications/Docker.app"; then
+      hdiutil detach "$docker_mount" >/dev/null 2>&1 || true
+      rm -rf "$docker_tmp"
+      fail "Could not copy Docker Desktop into ~/Applications."
+    fi
+    docker_app="$HOME/Applications/Docker.app"
+    printf 'Installed Docker Desktop at %s\n' "$docker_app"
   fi
   hdiutil detach "$docker_mount" >/dev/null 2>&1 || true
   rm -rf "$docker_tmp"
-  docker_app="$HOME/Applications/Docker.app"
-  printf 'Installed Docker Desktop at %s\n' "$docker_app"
 fi
 
-export PATH="$docker_app/Contents/Resources/bin:$HOME/.docker/bin:$PATH"
-command -v docker >/dev/null 2>&1 || fail "Docker CLI was not found inside Docker Desktop."
+if [[ "$mediamtx_backend" == "docker" ]] &&
+  ! check_docker_macos_version "$docker_app"; then
+  mediamtx_backend="native"
+fi
 
-open "$docker_app" || fail "Could not launch Docker Desktop."
-docker_ready=false
-printf 'Waiting for Docker Desktop. Approve any macOS helper prompt if shown.\n'
-for ((attempt = 1; attempt <= 60; attempt++)); do
-  if docker info >/dev/null 2>&1; then
-    docker_ready=true
-    break
+if [[ "$mediamtx_backend" == "docker" ]]; then
+  export PATH="$docker_app/Contents/Resources/bin:$HOME/.docker/bin:$PATH"
+  command -v docker >/dev/null 2>&1 || fail "Docker CLI was not found inside Docker Desktop."
+
+  open "$docker_app" || fail "Could not launch Docker Desktop."
+  docker_ready=false
+  printf 'Waiting for Docker Desktop. Approve any macOS helper prompt if shown.\n'
+  for ((attempt = 1; attempt <= 60; attempt++)); do
+    if docker info >/dev/null 2>&1; then
+      docker_ready=true
+      break
+    fi
+    sleep 3
+  done
+
+  if [[ "$docker_ready" != true ]]; then
+    printf 'Docker Desktop did not become ready; using native MediaMTX.\n'
+    mediamtx_backend="native"
   fi
-  sleep 3
-done
-
-if [[ "$docker_ready" != true ]]; then
-  fail "Docker Desktop did not become ready within 3 minutes. Open Docker Desktop, approve any prompt, then rerun this command."
 fi
 
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
@@ -224,7 +276,7 @@ npm ci
 npm run lint
 npm test
 npm run build
-npm run mediamtx:start
+MEDIAMTX_BACKEND="$mediamtx_backend" npm run mediamtx:start
 
 cat <<EOF
 

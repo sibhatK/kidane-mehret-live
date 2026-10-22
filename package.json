@@ -15,8 +15,9 @@
     "dev": "npm run build -w @kidane/shared && concurrently -k -n contracts,agent,dashboard \"npm run dev -w @kidane/shared\" \"npm run dev -w @kidane/agent\" \"npm run dev -w @kidane/dashboard\"",
     "build": "npm run build -w @kidane/shared && npm run build -w @kidane/agent && npm run build -w @kidane/dashboard",
     "start": "npm run start -w @kidane/agent",
-    "mediamtx:start": "docker compose up -d mediamtx",
-    "mediamtx:stop": "docker compose down",
+    "mediamtx:start": "bash scripts/mediamtx.sh start",
+    "mediamtx:stop": "bash scripts/mediamtx.sh stop",
+    "mediamtx:native:logs": "bash scripts/mediamtx-native.sh logs",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
     "test": "npm run build -w @kidane/shared && vitest run"

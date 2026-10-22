@@ -6,10 +6,10 @@ settings, or start a YouTube broadcast for you.
 
 ## One-Command Setup
 
-On a new Mac mini, review the bootstrap script before running it. It installs
-Docker Desktop from Docker's official macOS download if missing, launches it,
-and waits for the engine. First launch may require you to approve macOS's
-privileged-helper prompt in the Docker Desktop UI.
+On a new Mac mini, review the bootstrap script before running it. It uses Docker
+Desktop when compatible; on macOS versions that cannot run Docker Desktop, it
+uses the official checksum-verified MediaMTX binary without asking you to
+upgrade macOS.
 
 ```sh
 curl -fsSLo /tmp/kidane-bootstrap-mac.sh \
@@ -35,8 +35,9 @@ bootstrap cannot complete.
 ## What You Need
 
 - A Mac mini on a trusted private network with the iPad.
-- Docker Desktop for Mac, Git, Node.js `^20.19.0 || ^22.13.0 || >=24.0.0`,
-  and npm 10+. Node 22 LTS is recommended.
+- Git, Node.js `^20.19.0 || ^22.13.0 || >=24.0.0`, and npm 10+. Node 22 LTS is
+  recommended. Docker Desktop is optional; the preview can use the native
+  MediaMTX binary instead.
 - OBS configured and tested with the existing camera, church audio, YouTube
   destination, and local recording.
 - OBS WebSocket enabled if using OBS control. A secondary WHIP output and
@@ -46,7 +47,12 @@ Keep the Mac mini and iPad on the same trusted LAN. Do not enable macOS Internet
 Sharing or IP forwarding. Do not expose the development server, OBS WebSocket,
 or MediaMTX ports to the public internet.
 
-## 1. Install Docker Desktop
+## 1. Optional: Install Docker Desktop
+
+The bootstrap automatically uses native MediaMTX on macOS 13, including the
+Mac mini's reported macOS 13.2.1. No Docker installation or macOS upgrade is
+needed for the preview. On newer macOS versions, Docker Desktop can run
+MediaMTX in a container instead.
 
 1. On the Mac mini, open **Apple menu → About This Mac** and note whether it
    uses Apple silicon or Intel.
@@ -177,7 +183,7 @@ do not press Start Livestream unless a real broadcast is intended and authorized
 ## 4. Configure Local Environment
 
 Find the Mac mini's current Wi-Fi IPv4 address in **System Settings → Wi-Fi →
-Details → TCP/IP**. Use the same current address for Docker's advertised WebRTC
+Details → TCP/IP**. Use the same current address for MediaMTX's advertised WebRTC
 host and the iPad's dashboard URL. Do not assume an old DHCP address is still
 valid. A router DHCP reservation is recommended for a persistent address.
 
@@ -200,7 +206,7 @@ The agent loads the root `.env` at startup. Without both OBS variables, the app
 runs in simulation mode.
 
 For the optional MediaMTX preview, add the Mac's current Wi-Fi address to the
-same root `.env`:
+same root `.env` (used by both Docker and native mode):
 
 ```dotenv
 MEDIAMTX_LAN_IP=<Mac mini Wi-Fi IPv4 address>
@@ -225,16 +231,20 @@ Skip this section if you only need OBS status, controls, and audio meters. Open
 ```sh
 cd /path/to/kidane-mehret-live
 npm run mediamtx:start
-docker compose ps
 ```
 
-Use `npm run mediamtx:stop` to stop the service and release its ports.
-The Compose file reads `MEDIAMTX_LAN_IP` from root `.env`. It publishes WebRTC
-signaling on TCP `8889` and ICE media on UDP `8189`. Check startup logs with:
+The command uses Docker when its engine is ready, otherwise it downloads and
+verifies the official native macOS binary. On macOS 13, it uses native mode.
+Use `npm run mediamtx:stop` to stop the service and release its ports. The
+native binary and config are stored under `~/.local/share/kidane-mehret-live/`;
+its log is under `~/.local/state/kidane-mehret-live/`. Both modes publish WebRTC
+signaling on TCP `8889` and ICE media on UDP `8189`. For native logs, run:
 
 ```sh
-docker compose logs --tail=100 mediamtx
+npm run mediamtx:native:logs
 ```
+
+For Docker logs, run `docker compose logs --tail=100 mediamtx`.
 
 In OBS, start only the secondary WHIP output for the `live` path. The dashboard
 preview should appear when MediaMTX receives that feed. It is browser WebRTC
@@ -275,9 +285,9 @@ YouTube delivery, recording, or PTZ movement. Confirm each at the church.
 ## Stop and Roll Back
 
 - Stop the dashboard and agent with `Ctrl+C` in Terminal 2.
-- Stop MediaMTX with `docker compose down` in Terminal 1.
+- Stop MediaMTX with `npm run mediamtx:stop` in Terminal 1.
 - To roll back preview only, stop the secondary WHIP output in OBS, then run
-  `docker compose down`. The existing YouTube and recording outputs remain
+  `npm run mediamtx:stop`. The existing YouTube and recording outputs remain
   unchanged.
 - Do not change camera/network addressing as part of this guide. Any such
   change requires supervised maintenance, a backup, and rollback instructions.
@@ -286,9 +296,10 @@ YouTube delivery, recording, or PTZ movement. Confirm each at the church.
 
 - **`docker: command not found`:** open a new login terminal, run `source ~/.zprofile`,
   then `export PATH="$HOME/.docker/bin:$PATH"` and retry `docker info`.
-- **MediaMTX container exits:** check `docker compose ps` and
-  `docker compose logs --tail=100 mediamtx`; confirm `MEDIAMTX_LAN_IP` is set
-  correctly in root `.env`.
+- **MediaMTX exits:** for Docker, check `docker compose ps` and
+  `docker compose logs --tail=100 mediamtx`; for native mode, run
+  `npm run mediamtx:native:logs`. Confirm `MEDIAMTX_LAN_IP` is set correctly in
+  root `.env`.
 - **Dashboard says simulation:** confirm both OBS WebSocket variables are set
   in root `.env`, then restart `npm run dev`.
 - **OBS shows disconnected:** verify OBS WebSocket is enabled, the host/port and
