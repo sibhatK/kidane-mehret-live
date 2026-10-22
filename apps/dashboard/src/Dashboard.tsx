@@ -74,9 +74,7 @@ export function Dashboard({
     },
   ] as const
   const label = status
-    ? (obsMode ? obsStateLabels : simulationStateLabels)[
-        status.broadcast.state
-      ]
+    ? (obsMode ? obsStateLabels : simulationStateLabels)[status.broadcast.state]
     : 'Broadcast status unknown — NOT LIVE'
 
   function sendBroadcastCommand(command: Command) {
@@ -142,7 +140,9 @@ export function Dashboard({
       )}
 
       <section
-        aria-label={obsMode ? 'OBS and device status' : 'Simulated connection status'}
+        aria-label={
+          obsMode ? 'OBS and device status' : 'Simulated connection status'
+        }
         className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
       >
         {devices.map(({ name, detail, connection, mock }) => {
@@ -187,7 +187,10 @@ export function Dashboard({
                 </p>
               )}
               {name === 'Audio' && obsMode && (
-                <div className="mt-3 space-y-3" aria-label="OBS audio input meters">
+                <div
+                  className="mt-3 space-y-3"
+                  aria-label="OBS audio input meters"
+                >
                   {audioMeters.length === 0 ? (
                     <p className="text-sm text-slate-300">
                       Waiting for OBS audio meter events
@@ -231,7 +234,11 @@ export function Dashboard({
           <CameraPreview url={import.meta.env.VITE_MEDIAMTX_WEBRTC_URL} />
           <div
             role="group"
-            aria-label={obsMode ? 'Unavailable camera presets' : 'Simulated camera presets'}
+            aria-label={
+              obsMode
+                ? 'Unavailable camera presets'
+                : 'Simulated camera presets'
+            }
             className="mt-5 grid grid-cols-3 gap-3"
           >
             {presetSchema.options.map((preset) => {
@@ -257,7 +264,9 @@ export function Dashboard({
         </section>
 
         <section className="panel" aria-labelledby="broadcast-heading">
-          <p className="eyebrow">02 · {obsMode ? 'Control OBS' : 'Rehearse the broadcast'}</p>
+          <p className="eyebrow">
+            02 · {obsMode ? 'Control OBS' : 'Rehearse the broadcast'}
+          </p>
           <h2 id="broadcast-heading" className="mt-2 text-2xl font-semibold">
             Broadcast controls
           </h2>

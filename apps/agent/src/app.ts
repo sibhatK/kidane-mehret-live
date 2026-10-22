@@ -50,18 +50,14 @@ export function buildApp(adapters: Adapters = createMockAdapters()) {
       return reply.code(400).send({ error: 'Invalid command' })
     }
     if (commandPending) {
-      return reply
-        .code(409)
-        .send({ error: 'Another command is pending' })
+      return reply.code(409).send({ error: 'Another command is pending' })
     }
     commandPending = true
     try {
       const status = await getStatus()
       const command = parsed.data
       if (!canExecute(status, command)) {
-        return reply
-          .code(409)
-          .send({ error: 'Command is not available' })
+        return reply.code(409).send({ error: 'Command is not available' })
       }
       if (command.type === 'preset') {
         await adapters.camera.selectPreset(command.preset)

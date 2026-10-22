@@ -119,9 +119,7 @@ export function createObsAdapters(
       parsed.data.inputs.flatMap((input) => {
         const levels = collectNumbers(input.inputLevelsDb)
         const multipliers = collectNumbers(input.inputLevelsMul)
-        const multiplierPeak = multipliers.length
-          ? Math.max(...multipliers)
-          : 0
+        const multiplierPeak = multipliers.length ? Math.max(...multipliers) : 0
         const peakDb =
           levels.length > 0
             ? Math.max(...levels)
@@ -153,7 +151,10 @@ export function createObsAdapters(
         eventSubscriptions:
           EventSubscription.General | EventSubscription.InputVolumeMeters,
       })
-      .then(() => true, () => false)
+      .then(
+        () => true,
+        () => false,
+      )
       .finally(() => {
         connectionAttempt = undefined
       })
@@ -188,15 +189,19 @@ export function createObsAdapters(
       ) {
         startRequestedAt = undefined
       }
-      const state: BroadcastState = stream.outputReconnecting || startRequestedAt
-        ? 'starting'
-        : stream.outputActive
-          ? 'streaming'
-          : prepared
-            ? 'prepared'
-            : 'idle'
+      const state: BroadcastState =
+        stream.outputReconnecting || startRequestedAt
+          ? 'starting'
+          : stream.outputActive
+            ? 'streaming'
+            : prepared
+              ? 'prepared'
+              : 'idle'
       return {
-        obs: { connection: 'connected' as const, recording: recording.outputActive },
+        obs: {
+          connection: 'connected' as const,
+          recording: recording.outputActive,
+        },
         broadcast: {
           connection: 'connected' as const,
           state,

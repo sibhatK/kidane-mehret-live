@@ -252,7 +252,10 @@ describe('simulation API', () => {
       inputs: [
         {
           inputName: 'Mixer Input',
-          inputLevelsDb: [[-18, -24], [-30, -40]],
+          inputLevelsDb: [
+            [-18, -24],
+            [-30, -40],
+          ],
         },
       ],
     })

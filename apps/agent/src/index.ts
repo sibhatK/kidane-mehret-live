@@ -3,9 +3,7 @@ import { buildApp } from './app.js'
 import { createConfiguredAdapters } from './adapters.js'
 
 try {
-  process.loadEnvFile(
-    fileURLToPath(new URL('../../../.env', import.meta.url)),
-  )
+  process.loadEnvFile(fileURLToPath(new URL('../../../.env', import.meta.url)))
 } catch (error) {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
 }

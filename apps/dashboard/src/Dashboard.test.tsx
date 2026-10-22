@@ -96,23 +96,15 @@ describe('dashboard safety and controls', () => {
   })
 
   it('shows the OBS snapshot and audio levels without implying mixer mapping or PTZ control', () => {
-    vi.stubEnv(
-      'VITE_MEDIAMTX_WEBRTC_URL',
-      'http://192.168.1.206:8889/live',
-    )
-    const html = render(
-      obsStatus,
-      false,
-      null,
-      [
-        {
-          inputName: 'Mixer Input',
-          level: 0.7,
-          peakDb: -18,
-          sampledAt: Date.now(),
-        },
-      ],
-    )
+    vi.stubEnv('VITE_MEDIAMTX_WEBRTC_URL', 'http://192.168.1.206:8889/live')
+    const html = render(obsStatus, false, null, [
+      {
+        inputName: 'Mixer Input',
+        level: 0.7,
+        peakDb: -18,
+        sampledAt: Date.now(),
+      },
+    ])
     expect(html).toContain('OBS CONTROL')
     expect(html).toContain('OBS output active')
     expect(html).toContain('Recording active')
@@ -120,9 +112,9 @@ describe('dashboard safety and controls', () => {
     expect(html).toContain('70')
     expect(html).not.toContain('<audio')
     expect(html).toContain('Live OBS program preview')
-    expect(html).toContain('Mixer mapping unverified')
+    expect(html).toContain('OBS input meters · mixer mapping unverified')
     expect(html).toContain('PTZ control not integrated')
-    expect(html).toContain('Verify the scene preview and audio meters in OBS')
+    expect(html).toContain('Verify the MediaMTX preview and OBS audio meters')
     expect(html).not.toContain('Connected (mock)')
     expect(html).not.toContain('SIMULATION ONLY')
   })
