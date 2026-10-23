@@ -29,7 +29,19 @@ Both devices must be on the same trusted LAN with local device discovery
 permitted. Guest Wi-Fi or client isolation can prevent `.local` names working.
 
 In OBS, manually start only the **Local Preview** WHIP target after startup.
-This command never starts or stops a YouTube broadcast or recording. Refreshing
+The daily screen keeps **Picture**, camera shots, **Livestream**, and **Sound**
+in view. Technical connection information is under the closed **Setup details**
+section. It is not necessary to expand that section during normal operation.
+
+For a real broadcast, check the picture and intended microphone, select
+**Check connection**, and then **Start livestream**. Starting and ending a
+broadcast still require confirmation. While streaming, the main action becomes
+**End livestream**; verify YouTube delivery independently in YouTube Studio.
+Practice mode is explicitly labeled and does not start a real broadcast. If the
+connection is lost, the app disables controls and warns that the broadcast may
+still be running; it does not report that the stream has stopped.
+
+The `npm run live` startup command never starts or stops a YouTube broadcast or recording. Refreshing
 MediaMTX interrupts any existing local preview connection, so reconnect the
 Local Preview output if needed. Stop the dashboard with `Ctrl+C`; stop MediaMTX
 separately with `npm run mediamtx:stop`.
@@ -224,7 +236,8 @@ npm run build
    strong password, and note the port (default `4455`).
 2. Keep the existing YouTube and local recording configuration unchanged.
 3. Verify the camera video and church audio in OBS before continuing. This app
-   does not configure OBS sources, mixer routing, or physical camera PTZ.
+   does not configure OBS sources or mixer routing. Optional camera preset
+   recall is configured separately below; no movement happens at startup.
 4. If using the optional MediaMTX preview, install the macOS-compatible
    [OBS Multi-RTMP plugin](https://github.com/sorayuki/obs-multi-rtmp/releases).
    First check your OBS version in **OBS → About OBS Studio** and choose a
@@ -263,6 +276,106 @@ npm run build
 control OBS's primary stream output. It may be your real YouTube stream. For a
 preview-only check, start/stop only the secondary WHIP output in the OBS plugin;
 do not press Start Livestream unless a real broadcast is intended and authorized.
+
+### Optional: Main Camera / Congregation Switching
+
+The two **Picture source** buttons above the preview select existing OBS
+program scenes. They do not start or stop streaming or recording, move the PTZ
+camera, create scenes, change transitions, or connect an iPad camera. A scene
+being listed does not prove its video source is connected.
+
+Before a service, on the Mac running OBS:
+
+1. Verify the PTZ camera feed works in an OBS scene.
+2. Connect the iPad using a suitable capture app or supported connection and
+   verify that feed works in a second OBS scene. Capture on the same iPad used
+   for Safari controls may stop when switching apps; test that workflow or use
+   a separate capture device.
+3. Keep the intended church mixer source active in both scenes, using the same
+   existing audio source or a global OBS audio device. The app does not change
+   audio settings; switching a scene can still change scene-specific audio.
+   Check for doubled microphone sound, dropouts, and sync before broadcasting.
+4. Copy the exact names of those two existing scenes into the ignored root
+   `.env`. Example names below are examples only; use the actual OBS names:
+
+```dotenv
+OBS_SCENE_MAIN="Main Camera"
+OBS_SCENE_CONGREGATION="Congregation"
+```
+
+Restart with `npm run live`. A source button is enabled only if its mapping is
+configured, OBS is connected, and the mapped scene exists. Partial mappings
+are allowed. Both source labels must not map to the same scene. Unset these
+variables to disable real source switching; no scene names are guessed.
+
+Tap **Main camera** or **Congregation (iPad)** to select the picture. Real
+switches require confirmation because they may immediately change what viewers
+see. The selected button comes from OBS's current **program** scene, including
+changes made directly in OBS, not from the last requested button. In Studio
+Mode this switches program output, not the preview scene. If OBS shows another
+scene, neither button is selected. Confirm framing in the preview after every
+change; a command acknowledgement is not proof of video delivery.
+
+The health report checks scene availability with read-only status requests.
+It never switches a scene as a test. Practice mode simulates both sources and
+never contacts OBS. No church scene mappings are configured automatically.
+
+### Optional: PTZOptics Move 4K Preset Recall
+
+The church camera is a PTZOptics Move 4K 30x at `192.168.100.76`. Keep its
+working network and NDI/OBS configuration unchanged. Camera control runs from
+the Mac agent, not from the iPad browser. At home, leave all `PTZ_` variables
+unset: the physical camera is unavailable and its saved preset numbers are
+not yet known. Tests use fake camera responses and do not contact church gear.
+
+At church, first verify access to the camera's existing web interface. To
+enable read-only control connectivity checks, add these to the ignored root
+`.env` alongside the OBS WebSocket settings:
+
+```dotenv
+PTZ_CAMERA_URL=http://192.168.100.76
+PTZ_PRESET_MAP={}
+PTZ_PRESETS_CONFIRMED=false
+```
+
+If camera HTTP authentication is enabled, also set `PTZ_CAMERA_USERNAME` and
+`PTZ_CAMERA_PASSWORD` locally. Never share or commit them. The client uses
+Digest authentication, defaulting to SHA-256. Set
+`PTZ_CAMERA_DIGEST_ALGORITHM=MD5` only if the camera's configured HTTP Digest
+algorithm is MD5. Do not disable camera authentication to make integration work.
+Authentication failures keep camera controls disconnected.
+
+Restart with `npm run live`. Health checks only query device information;
+they never recall, save, delete, home, or reset a preset. A successful query
+proves control API connectivity, not NDI video health or physical position.
+
+Then, outside a service and with an operator watching the picture:
+
+1. Identify saved preset numbers in the camera's own interface. Do not use
+   Set, Save, Delete, or Reset, which could change existing shots.
+2. Verify which saved numbers correspond to Wide, Altar, and Reader. Calling
+   a preset moves the camera and may be visible in OBS. Check auto-tracking
+   settings before manual control so the camera does not reframe unexpectedly.
+3. Enter only verified mappings as JSON in `PTZ_PRESET_MAP`. The keys are
+   `Wide`, `Altar`, and `Reader`, and values are the actual saved numeric IDs.
+   Partial mappings are allowed; unmapped buttons remain disabled. Do not
+   assume labels correspond to preset numbers 1, 2, or 3.
+4. Set `PTZ_PRESETS_CONFIRMED=true` only after those shots are verified.
+   Restart `npm run live`, then test a single preset with the operator present.
+
+Only normal IDs `0-89` and `100-254` are accepted; reserved IDs `90-99` are
+rejected. Each real recall requires browser confirmation. A successful HTTP
+acknowledgement is displayed as a recall request, never proof of arrival.
+After a timeout, verify the picture before retrying: a command may have
+reached the camera even if its acknowledgement was lost. Failed movement
+requests are not automatically retried (apart from the Digest 401 challenge).
+The app does not save or delete presets, scan preset IDs, or change video,
+tracking, network, YouTube, or recording settings. Directional pan/tilt/zoom,
+iPad camera ingestion, and iPad audio routing remain separate follow-up work.
+
+Protocol references: [HTTP API getting started](https://docs.ptzoptics.com/dev/guides/http-api-getting-started),
+[preset commands and ranges](https://docs.ptzoptics.com/dev/http-api/movement/preset-commands-get-preset-command),
+and [device-information query](https://docs.ptzoptics.com/dev/http-api/query/get-device-config).
 
 ## 4. Configure Local Environment
 

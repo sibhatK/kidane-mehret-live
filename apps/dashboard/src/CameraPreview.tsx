@@ -22,21 +22,21 @@ export function CameraPreview({ url }: Props) {
   const src = playerUrl(url)
 
   return (
-    <div className="mt-5 aspect-video overflow-hidden rounded-xl border border-slate-500 bg-slate-950/40">
+    <div className="preview-frame">
       {src ? (
         <iframe
           className="size-full border-0"
           src={src}
-          title="Live OBS program preview"
+          title="Broadcast preview"
           allow="autoplay; fullscreen; picture-in-picture"
           allowFullScreen
         />
       ) : (
         <div
-          className="flex size-full items-center justify-center p-6 text-center text-sm text-slate-300"
+          className="text-muted flex size-full items-center justify-center p-6 text-center text-sm"
           role="status"
         >
-          Preview unavailable. Configure a valid MediaMTX WebRTC preview URL.
+          Picture unavailable. Ask the operator to check the camera preview.
         </div>
       )}
     </div>

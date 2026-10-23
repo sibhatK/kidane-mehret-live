@@ -1,8 +1,12 @@
 import {
   canExecute,
+  cameraSourceSchema,
   presetSchema,
   type AudioMeter,
+  type BroadcastAction,
   type Command,
+  type CameraSource,
+  type Preset,
   type Status,
 } from '@kidane/shared'
 import { CameraPreview } from './CameraPreview'
@@ -16,20 +20,26 @@ interface Props {
   onCommand: (command: Command) => void
 }
 
+type StatusTone = 'success' | 'danger' | 'warning' | 'neutral'
+const sourceLabels: Record<CameraSource, string> = {
+  main: 'Main camera',
+  congregation: 'Congregation (iPad)',
+}
+
 const simulationStateLabels = {
-  idle: 'Not broadcasting',
-  prepared: 'Prepared for simulation',
-  starting: 'Starting simulated broadcast',
-  streaming: 'Stream active',
-  simulating: 'Broadcast simulation running — NOT LIVE',
+  idle: 'Practice is stopped',
+  prepared: 'Ready to practice',
+  starting: 'Starting practice',
+  streaming: 'Practice running — NOT LIVE',
+  simulating: 'Practice running — NOT LIVE',
 }
 
 const obsStateLabels = {
-  idle: 'OBS stream stopped',
-  prepared: 'Ready to start in OBS',
-  starting: 'Starting OBS stream…',
-  streaming: 'OBS output active',
-  simulating: 'Unknown OBS stream state',
+  idle: 'Stream stopped in OBS',
+  prepared: 'Connection checked',
+  starting: 'Starting stream in OBS',
+  streaming: 'OBS is streaming',
+  simulating: 'Broadcast status unavailable',
 }
 
 export function Dashboard({
@@ -41,21 +51,44 @@ export function Dashboard({
   onCommand,
 }: Props) {
   const obsMode = status?.mode === 'obs'
+  const practiceMode = status?.mode === 'simulated'
+  const physicalCamera = status?.camera.control === 'ptzoptics'
+  const scenes = status?.obs.scenes
+  const receivingAudio =
+    obsMode && status.obs.connection === 'connected' && audioMeters.length > 0
   const disabled = (command: Command) =>
-    busy || !status || !canExecute(status, command)
+    busy ||
+    !status ||
+    !canExecute(
+      status,
+      (physicalCamera && command.type === 'preset') ||
+        (obsMode && command.type === 'scene')
+        ? { ...command, confirmed: true }
+        : command,
+    )
   const devices = [
     {
       name: 'Camera',
-      detail: obsMode ? 'PTZ control not integrated' : 'PTZOptics Move 4K',
+      detail: physicalCamera
+        ? 'PTZOptics Move 4K · saved shots'
+        : obsMode
+          ? 'Camera movement · preview is separate'
+          : 'PTZOptics Move 4K',
       connection: status?.camera.connection,
       mock: !obsMode,
     },
     {
       name: 'Audio',
       detail: obsMode
-        ? 'OBS input meters · mixer mapping unverified'
+        ? 'Sound levels from OBS · microphone not verified'
         : 'Church audio mixer',
-      connection: status?.audio.connection,
+      connection: obsMode
+        ? receivingAudio
+          ? 'connected'
+          : status.obs.connection === 'disconnected'
+            ? 'disconnected'
+            : undefined
+        : status?.audio.connection,
       mock: !obsMode,
     },
     {
@@ -74,8 +107,76 @@ export function Dashboard({
     },
   ] as const
   const label = status
-    ? (obsMode ? obsStateLabels : simulationStateLabels)[status.broadcast.state]
-    : 'Broadcast status unknown — NOT LIVE'
+    ? obsMode && status.obs.connection !== 'connected'
+      ? 'Broadcast status unavailable'
+      : (obsMode ? obsStateLabels : simulationStateLabels)[
+          status.broadcast.state
+        ]
+    : 'Broadcast status unavailable'
+  const streamState = status?.broadcast.state ?? 'idle'
+  const active = ['starting', 'streaming', 'simulating'].includes(streamState)
+  const primaryAction: BroadcastAction = active
+    ? 'end'
+    : streamState === 'prepared'
+      ? 'go-live'
+      : 'prepare'
+  const actions: BroadcastAction[] =
+    primaryAction === 'go-live' ? ['go-live', 'end'] : [primaryAction]
+  const soundDetected = audioMeters.some(
+    (meter) => meter.level > 0 && meter.peakDb > -60,
+  )
+  const clippingAudio = audioMeters.some((meter) => meter.peakDb >= 0)
+  const highAudio = audioMeters.some((meter) => meter.peakDb >= -6)
+  const connectionTone: StatusTone = !status
+    ? loading
+      ? 'warning'
+      : 'danger'
+    : practiceMode
+      ? 'warning'
+      : status.obs.connection === 'connected'
+        ? 'success'
+        : 'danger'
+  const broadcastTone: StatusTone = !status
+    ? 'warning'
+    : practiceMode
+      ? 'warning'
+      : status.obs.connection === 'disconnected'
+        ? 'danger'
+        : streamState === 'prepared' || streamState === 'streaming'
+          ? 'success'
+          : streamState === 'starting' || streamState === 'simulating'
+            ? 'warning'
+            : 'neutral'
+  const cameraTone: StatusTone =
+    !status || practiceMode || !physicalCamera
+      ? 'warning'
+      : status.camera.connection !== 'connected'
+        ? 'danger'
+        : status.camera.availablePresets?.length
+          ? 'success'
+          : 'warning'
+  const soundTone: StatusTone =
+    !status || practiceMode
+      ? 'warning'
+      : status.obs.connection === 'disconnected'
+        ? 'danger'
+        : receivingAudio && clippingAudio
+          ? 'danger'
+          : receivingAudio && highAudio
+            ? 'warning'
+            : receivingAudio && soundDetected
+              ? 'success'
+              : 'warning'
+
+  function actionLabel(action: BroadcastAction) {
+    if (action === 'prepare')
+      return practiceMode ? 'Check practice setup' : 'Check connection'
+    if (action === 'go-live')
+      return practiceMode ? 'Start practice' : 'Start livestream'
+    if (streamState === 'prepared') return 'Cancel setup'
+    if (streamState === 'starting') return 'Cancel start'
+    return practiceMode ? 'End practice' : 'End livestream'
+  }
 
   function sendBroadcastCommand(command: Command) {
     if (
@@ -85,8 +186,8 @@ export function Dashboard({
     ) {
       const message =
         command.action === 'go-live'
-          ? 'Start the stream configured in OBS now? This sends the OBS output to its configured destination.'
-          : 'Stop or cancel the current OBS stream?'
+          ? 'Start the broadcast now? This starts the output configured in OBS, and people may be able to watch immediately.'
+          : 'Stop or cancel the broadcast configured in OBS? Viewers may lose the picture.'
       if (!window.confirm(message)) return
       onCommand({ ...command, confirmed: true })
       return
@@ -94,152 +195,151 @@ export function Dashboard({
     onCommand(command)
   }
 
+  function recallPreset(preset: Preset) {
+    const command = { type: 'preset', preset } as const
+    if (physicalCamera) {
+      if (
+        !window.confirm(
+          `Switch to the saved ${preset} shot? The physical camera will move, and viewers may see the movement.`,
+        )
+      )
+        return
+      onCommand({ ...command, confirmed: true })
+      return
+    }
+    onCommand(command)
+  }
+
+  function selectSource(source: CameraSource) {
+    if (scenes?.active === source) return
+    const command = { type: 'scene', source } as const
+    if (obsMode) {
+      if (
+        !window.confirm(
+          `Switch the broadcast picture to ${sourceLabels[source]} now? Viewers may see the change immediately. The stream stays running; sound follows the scene's OBS setup.`,
+        )
+      )
+        return
+      onCommand({ ...command, confirmed: true })
+      return
+    }
+    onCommand(command)
+  }
+
   return (
-    <main className="mx-auto max-w-6xl space-y-6 p-4 sm:p-8">
+    <main className="mx-auto max-w-6xl space-y-5 p-4 sm:p-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="eyebrow">Church livestream control</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-            Kidane Mehret Live
-          </h1>
-          <p className="mt-2 text-sm text-slate-300">
-            Kidane Mehret Eritrean Ge’ez Rite Church · Atlanta
-          </p>
+          <h1 className="text-2xl font-semibold">Kidane Mehret Live</h1>
         </div>
-        <span className="rounded-full border border-amber-300/50 bg-amber-300/10 px-4 py-2 text-sm font-semibold text-amber-200">
-          {obsMode ? 'OBS CONTROL' : 'CONTROLS SIMULATED'}
+        <span className="status-badge self-center" data-tone={connectionTone}>
+          {!status
+            ? loading
+              ? 'Connecting'
+              : 'Connection lost'
+            : obsMode
+              ? status.obs.connection === 'connected'
+                ? 'OBS connected'
+                : 'OBS not connected'
+              : 'Practice mode'}
         </span>
       </header>
 
-      <aside className="rounded-2xl border border-amber-300/40 bg-amber-300/10 p-4 text-amber-100">
-        {obsMode
-          ? 'OBS control is active. Verify the MediaMTX preview and OBS audio meters before starting, then verify YouTube delivery in YouTube Studio. Camera PTZ and camera/audio health are not integrated with this app.'
-          : 'Camera presets and broadcast controls are simulated. A configured MediaMTX preview shows the OBS program; this app does not start or stop YouTube streaming or recording.'}
-      </aside>
+      {status?.mode === 'simulated' && (
+        <aside className="status-callout text-sm" data-tone="warning">
+          Practice only. These controls do not start a real broadcast.
+        </aside>
+      )}
 
-      <div role="status" aria-live="polite">
-        {loading
-          ? 'Connecting to local agent…'
-          : busy
-            ? obsMode
-              ? 'Sending command to OBS…'
-              : 'Applying simulated command…'
-            : status
-              ? obsMode
-                ? 'OBS control connected · status refreshes every 3 seconds'
-                : 'Simulation agent connected · status refreshes every 3 seconds'
-              : 'Local agent unavailable'}
-      </div>
-      {error && (
-        <p
-          role="alert"
-          className="rounded-xl border border-rose-300/50 bg-rose-300/10 p-4 text-rose-100"
+      {(loading || busy || !status) && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="status-copy text-sm"
+          data-tone={!status && !loading ? 'danger' : 'neutral'}
         >
+          {loading
+            ? 'Connecting to the streaming computer…'
+            : busy
+              ? obsMode
+                ? 'Making the change…'
+                : 'Updating practice…'
+              : 'Connection lost. The broadcast may still be running.'}
+        </div>
+      )}
+      {error && (
+        <p role="alert" className="status-callout" data-tone="danger">
           {error}
         </p>
       )}
 
-      <section
-        aria-label={
-          obsMode ? 'OBS and device status' : 'Simulated connection status'
-        }
-        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
-      >
-        {devices.map(({ name, detail, connection, mock }) => {
-          const notIntegrated =
-            obsMode && (name === 'Camera' || name === 'Audio')
-          return (
-            <article className="panel" key={name}>
-              <h2 className="text-lg font-semibold">{name}</h2>
-              <p className="mt-1 text-sm text-slate-300">{detail}</p>
-              <p className="mt-4 font-medium">
-                <span
-                  aria-hidden="true"
-                  className={`mr-2 inline-block size-2 rounded-full ${connection === 'connected' && !notIntegrated ? 'bg-amber-300' : 'bg-slate-400'}`}
-                />
-                {notIntegrated
-                  ? 'Not integrated'
-                  : connection === 'connected'
-                    ? mock
-                      ? 'Connected (mock)'
-                      : 'Connected'
-                    : connection === 'disconnected'
-                      ? mock
-                        ? 'Disconnected (mock)'
-                        : 'Disconnected'
-                      : 'Unknown'}
-              </p>
-              {name === 'OBS' && obsMode && status && (
-                <p className="mt-1 text-sm text-slate-300">
-                  Recording
-                  {status.obs.recording === null
-                    ? ' unknown'
-                    : status.obs.recording
-                      ? ' active'
-                      : ' inactive'}
-                </p>
-              )}
-              {name === 'Audio' && status && !obsMode && (
-                <p className="mt-1 text-sm text-slate-300">
-                  {status.audio.muted
-                    ? 'Muted (simulated)'
-                    : 'Unmuted (simulated)'}
-                </p>
-              )}
-              {name === 'Audio' && obsMode && (
-                <div
-                  className="mt-3 space-y-3"
-                  aria-label="OBS audio input meters"
-                >
-                  {audioMeters.length === 0 ? (
-                    <p className="text-sm text-slate-300">
-                      Waiting for OBS audio meter events
-                    </p>
-                  ) : (
-                    audioMeters.map((meter) => (
-                      <div key={meter.inputName}>
-                        <div className="flex justify-between gap-2 text-xs text-slate-300">
-                          <span className="truncate">{meter.inputName}</span>
-                          <span>{meter.peakDb.toFixed(0)} dB</span>
-                        </div>
-                        <div
-                          className="mt-1 h-2 overflow-hidden rounded bg-slate-700"
-                          role="meter"
-                          aria-label={`${meter.inputName} OBS audio level`}
-                          aria-valuemin={0}
-                          aria-valuemax={100}
-                          aria-valuenow={Math.round(meter.level * 100)}
-                        >
-                          <div
-                            className="h-full bg-emerald-400"
-                            style={{ width: `${meter.level * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </article>
-          )
-        })}
-      </section>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section className="panel" aria-labelledby="camera-heading">
-          <p className="eyebrow">01 · Frame the service</p>
-          <h2 id="camera-heading" className="mt-2 text-2xl font-semibold">
-            Camera presets
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(18rem,1fr)]">
+        <section className="min-w-0" aria-labelledby="camera-heading">
+          <h2 id="camera-heading" className="text-xl font-semibold">
+            Picture
           </h2>
+          <div
+            role="group"
+            aria-label="Picture source"
+            className="mt-3 grid grid-cols-2 gap-2"
+          >
+            {cameraSourceSchema.options.map((source) => {
+              const command = { type: 'scene', source } as const
+              return (
+                <button
+                  key={source}
+                  className="control text-sm"
+                  aria-pressed={Boolean(
+                    status?.obs.connection === 'connected' &&
+                    scenes?.connection === 'connected' &&
+                    scenes.active === source,
+                  )}
+                  disabled={disabled(command)}
+                  onClick={() => selectSource(source)}
+                >
+                  {sourceLabels[source]}
+                </button>
+              )
+            })}
+          </div>
+          <p role="status" className="text-muted mt-2 text-sm">
+            {!status
+              ? 'Picture source unavailable.'
+              : practiceMode
+                ? 'Practice picture sources only.'
+                : !scenes?.configured.length
+                  ? 'Camera switching needs setup by an operator.'
+                  : status.obs.connection !== 'connected' ||
+                      scenes.connection !== 'connected'
+                    ? 'Picture source unavailable. Check the OBS connection.'
+                    : scenes.active
+                      ? `Selected in OBS: ${sourceLabels[scenes.active]}`
+                      : 'OBS is showing another scene. Neither camera is selected.'}
+          </p>
+          {obsMode &&
+          scenes?.configured.length &&
+          cameraSourceSchema.options.some(
+            (source) => !scenes.available.includes(source),
+          ) ? (
+            <p className="status-copy mt-1 text-sm" data-tone="warning">
+              Unavailable cameras need setup in OBS. A listed scene does not
+              prove its video feed is working.
+            </p>
+          ) : null}
           <CameraPreview url={import.meta.env.VITE_MEDIAMTX_WEBRTC_URL} />
+          <h3 className="mt-5 font-semibold">Main camera shots</h3>
           <div
             role="group"
             aria-label={
-              obsMode
-                ? 'Unavailable camera presets'
-                : 'Simulated camera presets'
+              !status
+                ? 'Camera shots unavailable'
+                : physicalCamera
+                  ? 'Main camera shots'
+                  : obsMode
+                    ? 'Camera shots unavailable'
+                    : 'Practice camera shots'
             }
-            className="mt-5 grid grid-cols-3 gap-3"
+            className="mt-3 grid grid-cols-3 gap-3"
           >
             {presetSchema.options.map((preset) => {
               const command = { type: 'preset', preset } as const
@@ -249,53 +349,60 @@ export function Dashboard({
                   key={preset}
                   aria-pressed={status?.camera.preset === preset}
                   disabled={disabled(command)}
-                  onClick={() => onCommand(command)}
+                  onClick={() => recallPreset(preset)}
                 >
                   {preset}
                 </button>
               )
             })}
           </div>
-          <p className="mt-4 text-sm text-slate-300">
-            {obsMode
-              ? 'Physical PTZ controls are not connected.'
-              : 'Preset buttons update mock state only.'}
+          <p className="status-copy mt-4 text-sm" data-tone={cameraTone}>
+            {!status
+              ? 'Camera status unavailable.'
+              : physicalCamera
+                ? status?.camera.connection !== 'connected'
+                  ? 'Camera not connected. Ask the operator to check it.'
+                  : !status.camera.availablePresets?.length
+                    ? 'Camera shots need setup by an operator.'
+                    : 'Saved shots available. Changing shots moves the camera.'
+                : obsMode
+                  ? 'Camera shots need setup by an operator.'
+                  : 'Practice camera shots only.'}
           </p>
+          {physicalCamera && status?.camera.lastRequestedPreset && (
+            <p role="status" className="text-muted mt-2 text-sm">
+              Shot requested: {status.camera.lastRequestedPreset}. Check the
+              picture.
+            </p>
+          )}
         </section>
 
-        <section className="panel" aria-labelledby="broadcast-heading">
-          <p className="eyebrow">
-            02 · {obsMode ? 'Control OBS' : 'Rehearse the broadcast'}
-          </p>
-          <h2 id="broadcast-heading" className="mt-2 text-2xl font-semibold">
-            Broadcast controls
+        <section className="min-w-0" aria-labelledby="broadcast-heading">
+          <h2 id="broadcast-heading" className="text-xl font-semibold">
+            {practiceMode ? 'Practice broadcast' : 'Livestream'}
           </h2>
           <p
-            className="my-5 rounded-xl bg-slate-950/40 p-4 text-lg font-medium"
+            className="status-callout mb-3 mt-4 text-lg font-semibold"
             role="status"
+            data-tone={broadcastTone}
           >
             {label}
           </p>
+          <p className="text-muted mb-4 text-sm">
+            {!status
+              ? 'Broadcast status is unknown.'
+              : !obsMode
+                ? 'No real broadcast starts in practice mode.'
+                : status.obs.connection !== 'connected'
+                  ? 'Open OBS on the Mac to reconnect.'
+                  : streamState === 'prepared'
+                    ? 'Connection checked. Confirm the picture and sound before starting.'
+                    : active
+                      ? 'Confirm viewers receive picture and sound in YouTube Studio.'
+                      : 'Connection check needed before starting.'}
+          </p>
           <div className="grid gap-3">
-            {(
-              [
-                ['prepare', 'Prepare', 'Check simulated equipment'],
-                [
-                  'go-live',
-                  obsMode ? 'Start Livestream' : 'Go Live',
-                  obsMode
-                    ? 'Starts the configured OBS output after confirmation'
-                    : 'Simulation only — never starts a real stream',
-                ],
-                [
-                  'end',
-                  'End Broadcast',
-                  obsMode
-                    ? 'Stops the OBS stream after confirmation'
-                    : 'End or cancel the simulation',
-                ],
-              ] as const
-            ).map(([action, label, detail]) => {
+            {actions.map((action) => {
               const command = { type: 'broadcast', action } as const
               const availabilityCommand =
                 obsMode && (action === 'go-live' || action === 'end')
@@ -303,30 +410,173 @@ export function Dashboard({
                   : command
               return (
                 <button
-                  className="control flex flex-col items-start text-left"
+                  className={`control text-base ${action === primaryAction ? (action === 'end' && active ? 'control-danger' : action === 'go-live' && obsMode ? 'control-success' : 'control-primary') : ''}`}
                   key={action}
                   disabled={disabled(availabilityCommand)}
                   onClick={() => sendBroadcastCommand(command)}
                 >
-                  <span>
-                    {label}{' '}
-                    {!obsMode && (
-                      <span className="text-xs font-normal">(simulated)</span>
-                    )}
-                  </span>
-                  <span className="mt-1 text-sm font-normal">{detail}</span>
+                  {actionLabel(action)}
                 </button>
               )
             })}
           </div>
+          {obsMode && status && (
+            <p
+              className="status-copy mt-3 text-sm"
+              data-tone={
+                status.obs.connection !== 'connected' ||
+                status.obs.recording === null
+                  ? 'warning'
+                  : status.obs.recording
+                    ? 'success'
+                    : 'neutral'
+              }
+            >
+              {status.obs.connection !== 'connected' ||
+              status.obs.recording === null
+                ? 'Recording status unknown'
+                : status.obs.recording
+                  ? 'Recording active'
+                  : 'Recording stopped'}
+            </p>
+          )}
+
+          <div className="divider mt-6 border-t pt-4" aria-label="Sound levels">
+            <h3 className="font-semibold">Sound</h3>
+            <p
+              role="status"
+              className="status-copy mt-2 text-sm"
+              data-tone={soundTone}
+            >
+              {!status
+                ? 'Sound status unavailable.'
+                : obsMode && status.obs.connection === 'disconnected'
+                  ? 'OBS not connected. Sound levels unavailable.'
+                  : !obsMode
+                    ? 'Sound check unavailable in practice mode.'
+                    : !audioMeters.length
+                      ? 'Waiting for sound levels.'
+                      : clippingAudio
+                        ? 'Sound may be clipping. Ask the operator to lower it in OBS.'
+                        : highAudio
+                          ? 'Sound level is high. Check the microphone in OBS.'
+                          : soundDetected
+                            ? 'Sound detected. Confirm the intended microphone.'
+                            : 'No sound detected. Check the microphone in OBS.'}
+            </p>
+            {receivingAudio &&
+              audioMeters.map((meter) => (
+                <div className="mt-3" key={meter.inputName}>
+                  <p className="text-muted truncate text-sm">
+                    {meter.inputName}
+                  </p>
+                  <div
+                    className="meter-track"
+                    role="meter"
+                    aria-label={`${meter.inputName} OBS audio level`}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(meter.level * 100)}
+                  >
+                    <div
+                      className="meter-fill"
+                      data-tone={
+                        meter.peakDb >= 0
+                          ? 'danger'
+                          : meter.peakDb >= -6
+                            ? 'warning'
+                            : 'success'
+                      }
+                      style={{ width: `${meter.level * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+          </div>
         </section>
       </div>
 
-      <footer className="pb-4 text-sm text-slate-300">
-        {obsMode
-          ? 'OBS mode · stream state is read from OBS; camera and audio checks remain manual'
-          : 'Development rehearsal · no physical equipment required · state resets when the agent restarts'}
-      </footer>
+      <details className="divider border-t pt-4">
+        <summary className="text-muted cursor-pointer py-2 font-semibold">
+          Setup details
+        </summary>
+        <p className="text-muted mb-4 mt-2 text-sm">
+          Picture, camera position, and microphone routing need operator
+          verification. OBS status does not confirm YouTube delivery. Camera
+          recall acknowledgement does not confirm arrival.
+        </p>
+        <section
+          aria-label={
+            obsMode ? 'OBS and device status' : 'Simulated connection status'
+          }
+          className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
+        >
+          {devices.map(({ name, detail, connection, mock }) => {
+            const cameraNeedsSetup =
+              obsMode && name === 'Camera' && !physicalCamera
+            const tone: StatusTone =
+              mock || cameraNeedsSetup
+                ? 'warning'
+                : connection === 'disconnected'
+                  ? 'danger'
+                  : connection !== 'connected' ||
+                      (name === 'Camera' &&
+                        !status?.camera.availablePresets?.length)
+                    ? 'warning'
+                    : 'success'
+            return (
+              <article className="panel" key={name}>
+                <h2 className="text-lg font-semibold">{name}</h2>
+                <p className="text-muted mt-1 text-sm">{detail}</p>
+                <p className="status-copy mt-4 font-medium" data-tone={tone}>
+                  <span aria-hidden="true" className="status-dot" />
+                  {name === 'Audio' && obsMode
+                    ? status.obs.connection === 'disconnected'
+                      ? 'OBS not connected'
+                      : receivingAudio
+                        ? 'Receiving sound levels'
+                        : 'Waiting for sound levels'
+                    : name === 'Camera' && obsMode
+                      ? cameraNeedsSetup
+                        ? 'Camera controls need setup'
+                        : connection !== 'connected'
+                          ? 'Camera not connected'
+                          : status.camera.availablePresets?.length
+                            ? 'Saved shots available'
+                            : 'Camera connected · shots need setup'
+                      : connection === 'connected'
+                        ? mock
+                          ? 'Connected (mock)'
+                          : 'Connected'
+                        : connection === 'disconnected'
+                          ? mock
+                            ? 'Disconnected (mock)'
+                            : 'Disconnected'
+                          : 'Unknown'}
+                </p>
+                {name === 'OBS' && obsMode && status && (
+                  <p className="text-muted mt-1 text-sm">
+                    Recording
+                    {status.obs.connection !== 'connected' ||
+                    status.obs.recording === null
+                      ? ' unknown'
+                      : status.obs.recording
+                        ? ' active'
+                        : ' inactive'}
+                  </p>
+                )}
+                {name === 'Audio' && status && !obsMode && (
+                  <p className="text-muted mt-1 text-sm">
+                    {status.audio.muted
+                      ? 'Muted (simulated)'
+                      : 'Unmuted (simulated)'}
+                  </p>
+                )}
+              </article>
+            )
+          })}
+        </section>
+      </details>
     </main>
   )
 }

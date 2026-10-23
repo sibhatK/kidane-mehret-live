@@ -2,6 +2,14 @@ import { z } from 'zod'
 
 export const presetSchema = z.enum(['Wide', 'Altar', 'Reader'])
 export type Preset = z.infer<typeof presetSchema>
+export const cameraSourceSchema = z.enum(['main', 'congregation'])
+export type CameraSource = z.infer<typeof cameraSourceSchema>
+export const sceneStatusSchema = z.object({
+  configured: z.array(cameraSourceSchema),
+  available: z.array(cameraSourceSchema),
+  active: cameraSourceSchema.nullable(),
+  connection: z.enum(['connected', 'disconnected']),
+})
 export const runtimeModeSchema = z.enum(['simulated', 'obs'])
 export type RuntimeMode = z.infer<typeof runtimeModeSchema>
 export const broadcastStateSchema = z.enum([
@@ -28,7 +36,10 @@ export const statusSchema = z.object({
   mode: runtimeModeSchema,
   camera: z.object({
     connection: connectionSchema,
-    preset: presetSchema,
+    preset: presetSchema.nullable(),
+    control: z.literal('ptzoptics').optional(),
+    availablePresets: z.array(presetSchema).optional(),
+    lastRequestedPreset: presetSchema.nullable().optional(),
   }),
   audio: z.object({
     connection: connectionSchema,
@@ -37,6 +48,7 @@ export const statusSchema = z.object({
   obs: z.object({
     connection: connectionSchema,
     recording: z.boolean().nullable(),
+    scenes: sceneStatusSchema.optional(),
   }),
   broadcast: z.object({
     connection: connectionSchema,
@@ -47,7 +59,20 @@ export const statusSchema = z.object({
 export type Status = z.infer<typeof statusSchema>
 
 export const commandSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('preset'), preset: presetSchema }).strict(),
+  z
+    .object({
+      type: z.literal('scene'),
+      source: cameraSourceSchema,
+      confirmed: z.boolean().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('preset'),
+      preset: presetSchema,
+      confirmed: z.boolean().optional(),
+    })
+    .strict(),
   z
     .object({
       type: z.literal('broadcast'),
@@ -69,10 +94,28 @@ export const allowedActions: Readonly<
 }
 
 export function canExecute(status: Status, command: Command): boolean {
-  if (command.type === 'preset')
+  if (command.type === 'scene') {
+    return (
+      status.obs.connection === 'connected' &&
+      status.obs.scenes?.connection === 'connected' &&
+      status.obs.scenes.configured.includes(command.source) &&
+      status.obs.scenes.available.includes(command.source) &&
+      (status.mode === 'simulated' || command.confirmed === true)
+    )
+  }
+  if (command.type === 'preset') {
+    if (status.camera.control === 'ptzoptics') {
+      return (
+        status.mode === 'obs' &&
+        status.camera.connection === 'connected' &&
+        status.camera.availablePresets?.includes(command.preset) === true &&
+        command.confirmed === true
+      )
+    }
     return (
       status.mode === 'simulated' && status.camera.connection === 'connected'
     )
+  }
   if (!allowedActions[status.broadcast.state].includes(command.action))
     return false
   if (status.mode === 'obs') {

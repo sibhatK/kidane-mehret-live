@@ -155,6 +155,37 @@ export async function readinessChecks(options: Options = {}): Promise<Check[]> {
     'Open OBS, then check Tools > WebSocket Server Settings. Match its URL and password in the local .env; never paste the password into chat. Restart npm run live after editing .env.',
   )
 
+  if (agent.ok && agent.value.obs.scenes?.configured.length) {
+    const scenes = agent.value.obs.scenes
+    result(
+      'Configured OBS picture sources',
+      scenes.connection === 'connected' &&
+        scenes.configured.every((source) => scenes.available.includes(source)),
+      'The configured scene names exist in OBS. Their video and audio feeds still need checking.',
+      'One or more configured OBS scenes are missing or the scene list is unavailable.',
+      'Open OBS and check that the exact existing scene names match OBS_SCENE_MAIN and OBS_SCENE_CONGREGATION in the local .env. Verify the iPad feed in OBS; this app does not create or connect it. Restart npm run live after editing .env.',
+    )
+  }
+
+  if (agent.ok && agent.value.camera.control === 'ptzoptics') {
+    result(
+      'PTZOptics control API',
+      agent.value.camera.connection === 'connected',
+      'A read-only camera device inquiry succeeded; NDI video and position are not proven.',
+      'The configured camera control API is unavailable or its response is invalid.',
+      'On the church Mac, confirm the camera web interface is reachable at the configured PTZ_CAMERA_URL. Check HTTP Digest settings locally; do not change camera network settings or share its password.',
+    )
+    checks.push({
+      name: 'Camera preset mappings',
+      state: agent.value.camera.availablePresets?.length
+        ? 'PASS'
+        : 'NOT VERIFIED',
+      detail: agent.value.camera.availablePresets?.length
+        ? 'Operator-confirmed mappings are configured. No preset was recalled by this check.'
+        : 'No confirmed preset mappings. Verify the saved numbers at church before configuring them; do not guess.',
+    })
+  }
+
   if (obsConnected) {
     const meters = await probe<AudioMeter[]>(
       `${dashboardUrl}/api/obs/audio-meters`,

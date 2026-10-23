@@ -19,6 +19,103 @@ const status: Status = {
 }
 
 describe('shared safety contracts', () => {
+  it('gates source switching on configured, available OBS scenes and explicit real confirmation', () => {
+    const current: Status = {
+      ...status,
+      mode: 'obs',
+      obs: {
+        connection: 'connected',
+        recording: false,
+        scenes: {
+          connection: 'connected',
+          configured: ['main', 'congregation'],
+          available: ['main'],
+          active: null,
+        },
+      },
+    }
+    const command = { type: 'scene', source: 'main', confirmed: true } as const
+    expect(commandSchema.parse(command)).toEqual(command)
+    expect(canExecute(current, command)).toBe(true)
+    expect(canExecute(current, { type: 'scene', source: 'main' })).toBe(false)
+    expect(canExecute(current, { ...command, source: 'congregation' })).toBe(
+      false,
+    )
+    expect(
+      canExecute(
+        { ...current, obs: { ...current.obs, connection: 'disconnected' } },
+        command,
+      ),
+    ).toBe(false)
+    expect(
+      canExecute(
+        {
+          ...current,
+          obs: {
+            ...current.obs,
+            scenes: { ...current.obs.scenes!, connection: 'disconnected' },
+          },
+        },
+        command,
+      ),
+    ).toBe(false)
+    expect(canExecute(status, command)).toBe(false)
+    expect(
+      canExecute(
+        { ...current, mode: 'simulated' },
+        { type: 'scene', source: 'main' },
+      ),
+    ).toBe(true)
+    expect(
+      commandSchema.safeParse({ ...command, sceneName: 'Any Scene' }).success,
+    ).toBe(false)
+    expect(
+      commandSchema.safeParse({ type: 'scene', source: 'arbitrary' }).success,
+    ).toBe(false)
+    expect(statusSchema.parse(current).obs.scenes?.active).toBeNull()
+  })
+
+  it('requires configured mappings, connection, OBS mode, and confirmation for real camera recall', () => {
+    const realCamera: Status = {
+      ...status,
+      mode: 'obs',
+      camera: {
+        connection: 'connected',
+        preset: null,
+        control: 'ptzoptics',
+        availablePresets: ['Wide'],
+        lastRequestedPreset: null,
+      },
+    }
+    expect(statusSchema.parse(realCamera).camera.preset).toBeNull()
+    const recall = { type: 'preset', preset: 'Wide', confirmed: true } as const
+    expect(canExecute(realCamera, recall)).toBe(true)
+    expect(canExecute(realCamera, { type: 'preset', preset: 'Wide' })).toBe(
+      false,
+    )
+    expect(canExecute(realCamera, { ...recall, preset: 'Reader' })).toBe(false)
+    expect(canExecute({ ...realCamera, mode: 'simulated' }, recall)).toBe(false)
+    expect(
+      canExecute(
+        {
+          ...realCamera,
+          camera: { ...realCamera.camera, connection: 'disconnected' },
+        },
+        recall,
+      ),
+    ).toBe(false)
+    expect(
+      canExecute(
+        {
+          ...realCamera,
+          camera: { ...realCamera.camera, availablePresets: [] },
+        },
+        recall,
+      ),
+    ).toBe(false)
+    expect(commandSchema.parse(recall)).toEqual(recall)
+  })
+
   it('accepts simulation or OBS mode but rejects unknown modes and states', () => {
     expect(statusSchema.parse(status)).toEqual(status)
     expect(

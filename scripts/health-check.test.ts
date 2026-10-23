@@ -53,6 +53,90 @@ function fixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe('read-only readiness report', () => {
+  it.each([true, false])(
+    'checks configured picture-source availability without switching scenes: %j',
+    async (available) => {
+      const body = {
+        ...status(),
+        obs: {
+          ...status().obs,
+          scenes: {
+            connection: 'connected',
+            configured: ['main', 'congregation'],
+            available: available ? ['main', 'congregation'] : ['main'],
+            active: 'main',
+          },
+        },
+      }
+      const { options, calls } = fixture({
+        'http://127.0.0.1:3001/api/status': body,
+        'http://127.0.0.1:5173/api/status': body,
+      })
+      const checks = await readinessChecks(options)
+      expect(
+        checks.find((check) => check.name === 'Configured OBS picture sources')
+          ?.state,
+      ).toBe(available ? 'PASS' : 'FAIL')
+      expect(
+        calls.every(
+          (call) => call.method === 'GET' && !call.url.includes('/commands'),
+        ),
+      ).toBe(true)
+    },
+  )
+
+  it('reports camera control connectivity without recalling presets or assuming saved positions', async () => {
+    const body = {
+      ...status(),
+      camera: {
+        connection: 'connected',
+        control: 'ptzoptics',
+        preset: null,
+        availablePresets: [],
+        lastRequestedPreset: null,
+      },
+    }
+    const { options, calls } = fixture({
+      'http://127.0.0.1:3001/api/status': body,
+      'http://127.0.0.1:5173/api/status': body,
+    })
+    const checks = await readinessChecks(options)
+    expect(
+      checks.find((check) => check.name === 'PTZOptics control API')?.state,
+    ).toBe('PASS')
+    expect(
+      checks.find((check) => check.name === 'Camera preset mappings')?.state,
+    ).toBe('NOT VERIFIED')
+    expect(
+      calls.every(
+        (call) =>
+          call.method === 'GET' &&
+          !call.url.includes('ptzctrl') &&
+          !call.url.includes('/commands'),
+      ),
+    ).toBe(true)
+  })
+
+  it('fails configured camera connectivity without hiding unavailable preset mappings', async () => {
+    const body = {
+      ...status(),
+      camera: {
+        connection: 'disconnected',
+        control: 'ptzoptics',
+        preset: null,
+        availablePresets: [],
+      },
+    }
+    const { options } = fixture({
+      'http://127.0.0.1:3001/api/status': body,
+      'http://127.0.0.1:5173/api/status': body,
+    })
+    const checks = await readinessChecks(options)
+    expect(
+      checks.find((check) => check.name === 'PTZOptics control API')?.state,
+    ).toBe('FAIL')
+  })
+
   it('validates services but never claims end-to-end readiness or sends commands', async () => {
     const { options, calls } = fixture()
     const checks = await readinessChecks(options)

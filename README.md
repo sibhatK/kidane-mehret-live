@@ -133,12 +133,13 @@ OBS_WEBSOCKET_PASSWORD=<your OBS WebSocket password>
 authentication; use it only on a trusted, private network. Browser confirmation
 The agent loads `.env` at startup. With neither variable set, the app remains in
 simulation mode; a URL without a password is rejected. Never commit the
-password. In OBS mode, Prepare checks the OBS connection and stream state,
+password. In OBS mode, Check connection reads the OBS connection and stream state,
 Start Livestream and End Broadcast require confirmation, and stream/recording
 status comes from OBS. OBS input meter events appear by source name; their
 mapping to the church mixer is not yet verified. When configured, MediaMTX
 provides the browser video preview. Verify audio in OBS before starting, then
-confirm YouTube delivery in YouTube Studio. Camera PTZ remains unintegrated.
+confirm YouTube delivery in YouTube Studio. Opt-in PTZOptics preset recall is
+available with operator-verified mappings; directional PTZ remains unintegrated.
 The dashboard has no user authentication; use it only on a trusted, private
 network. Browser confirmation is not access control.
 
@@ -151,9 +152,19 @@ and optional MediaMTX preview**, not a production broadcast system:
   mode it reports OBS stream/recording status, displays OBS input meters, and
   can start/stop the configured OBS stream after confirmation. When MediaMTX is
   configured, the dashboard embeds its WebRTC preview.
+- Optional **Main camera / Congregation (iPad)** buttons select existing OBS
+  program scenes using exact, explicitly configured scene names. Actual program
+  selection comes from OBS, with missing scenes disabled. Configure the iPad
+  capture and shared mixer audio in OBS first; scene switching does not connect
+  the iPad or verify its video. See [GETTING_STARTED.md](GETTING_STARTED.md).
 - Fastify provides `GET /api/status`, `POST /api/commands`, and OBS meter/status
   endpoints. Zod contracts validate public state; agent state is in memory.
-- Camera and audio health adapters and physical PTZ control remain mocks. The
+- An opt-in PTZOptics Move 4K HTTP adapter can recall confirmed stored presets
+  after explicit confirmation. Camera control API connectivity is checked
+  read-only; actual position and NDI video health remain unverified. Without
+  camera configuration, real preset buttons stay disabled. See
+  [GETTING_STARTED.md](GETTING_STARTED.md) before configuring hardware.
+- Audio health and directional physical PTZ remain unintegrated. The
   OBS meter source is not yet mapped specifically to the church mixer. OBS
   output-active does not independently prove YouTube delivery, and the app
   does not configure the YouTube destination or control recording.

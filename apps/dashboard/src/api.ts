@@ -15,7 +15,13 @@ export async function requestStatus(
   const abort = () => controller.abort()
   if (signal?.aborted) controller.abort()
   signal?.addEventListener('abort', abort, { once: true })
-  const timeout = setTimeout(abort, 5000)
+  const timeout = setTimeout(
+    abort,
+    (command?.type === 'preset' || command?.type === 'scene') &&
+      command.confirmed
+      ? 15000
+      : 5000,
+  )
   try {
     const response = await fetch(command ? '/api/commands' : '/api/status', {
       method: command ? 'POST' : 'GET',

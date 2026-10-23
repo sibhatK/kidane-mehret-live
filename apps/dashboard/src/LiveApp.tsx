@@ -26,7 +26,7 @@ export default function LiveApp() {
         if (!controller.signal.aborted) {
           setStatus(null)
           setError(
-            'Agent unavailable or invalid status. Controls are disabled; retrying automatically.',
+            'Cannot reach the streaming computer. Ask the operator to check the app on the Mac. Reconnecting automatically.',
           )
         }
       } finally {
@@ -53,7 +53,15 @@ export default function LiveApp() {
     async function refreshMeters() {
       try {
         const next = await requestObsAudioMeters()
-        if (!stopped) setAudioMeters(next)
+        const receivedAt = Date.now()
+        if (!stopped)
+          setAudioMeters(
+            next.filter(
+              (meter) =>
+                receivedAt - meter.sampledAt >= 0 &&
+                receivedAt - meter.sampledAt < 5000,
+            ),
+          )
       } catch {
         if (!stopped) setAudioMeters([])
       } finally {
@@ -75,7 +83,9 @@ export default function LiveApp() {
       setStatus(await requestStatus(command))
     } catch {
       setStatus(null)
-      setError('Command failed. Waiting for a fresh agent status.')
+      setError(
+        'Could not confirm the change. Check the picture and broadcast status before trying again.',
+      )
     } finally {
       setBusy(false)
     }

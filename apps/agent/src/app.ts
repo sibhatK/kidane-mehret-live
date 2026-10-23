@@ -61,6 +61,8 @@ export function buildApp(adapters: Adapters = createMockAdapters()) {
       }
       if (command.type === 'preset') {
         await adapters.camera.selectPreset(command.preset)
+      } else if (command.type === 'scene') {
+        await adapters.obs.selectScene(command.source)
       } else {
         switch (command.action) {
           case 'prepare':

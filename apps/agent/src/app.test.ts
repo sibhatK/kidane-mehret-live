@@ -4,9 +4,15 @@ import {
   statusSchema,
   type BroadcastAction,
   type BroadcastState,
+  type CameraSource,
 } from '@kidane/shared'
 import { buildApp } from './app.js'
-import { createMockAdapters, createObsAdapters } from './adapters.js'
+import {
+  createConfiguredAdapters,
+  createMockAdapters,
+  createObsAdapters,
+} from './adapters.js'
+import { createPtzOpticsAdapter } from './ptzoptics.js'
 
 const apps: ReturnType<typeof buildApp>[] = []
 function createApp(adapters = createMockAdapters()) {
@@ -19,6 +25,159 @@ afterEach(async () => {
 })
 
 describe('simulation API', () => {
+  it('switches simulated camera sources without starting or stopping any stream', async () => {
+    const adapters = createMockAdapters()
+    const start = vi.spyOn(adapters.obs, 'startStream')
+    const stop = vi.spyOn(adapters.obs, 'end')
+    const app = createApp(adapters)
+    expect((await app.inject('/api/status')).json().obs.scenes.active).toBe(
+      'main',
+    )
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/commands',
+      payload: { type: 'scene', source: 'congregation' },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().obs.scenes.active).toBe('congregation')
+    expect(response.json().broadcast.state).toBe('idle')
+    expect(start).not.toHaveBeenCalled()
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it('keeps physical preset recall opt-in and rejects camera configuration without OBS mode', () => {
+    expect(createConfiguredAdapters({}).mode).toBe('simulated')
+    expect(() =>
+      createConfiguredAdapters({ PTZ_CAMERA_URL: 'http://192.168.100.76' }),
+    ).toThrow('Configure OBS WebSocket')
+    const configured = createConfiguredAdapters({
+      OBS_WEBSOCKET_URL: 'ws://127.0.0.1:4455',
+      OBS_WEBSOCKET_PASSWORD: 'fixture-password',
+    })
+    expect(configured.mode).toBe('obs')
+  })
+
+  it('requires confirmed mapped recalls at the API boundary without touching broadcast controls', async () => {
+    const send = vi.fn(
+      async (url: string) =>
+        new Response(
+          url.includes('get_device_conf')
+            ? JSON.stringify({
+                status: 200,
+                data: { devname: 'ptzopticsmove4k' },
+              })
+            : 'OK',
+        ),
+    )
+    const adapters = createMockAdapters()
+    adapters.mode = 'obs'
+    adapters.camera = createPtzOpticsAdapter(
+      {
+        origin: 'http://192.168.100.76',
+        presets: { Wide: 7 },
+        confirmed: true,
+        algorithm: 'SHA-256',
+      },
+      send,
+    )
+    const startStream = vi.spyOn(adapters.obs, 'startStream')
+    const stopStream = vi.spyOn(adapters.obs, 'end')
+    const app = createApp(adapters)
+    for (const payload of [
+      { type: 'preset', preset: 'Wide' },
+      { type: 'preset', preset: 'Wide', confirmed: false },
+      { type: 'preset', preset: 'Reader', confirmed: true },
+    ]) {
+      expect(
+        (await app.inject({ method: 'POST', url: '/api/commands', payload }))
+          .statusCode,
+      ).toBe(409)
+    }
+    expect(send.mock.calls.every((call) => !call[0].includes('poscall'))).toBe(
+      true,
+    )
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/commands',
+          payload: {
+            type: 'preset',
+            preset: 'Wide',
+            confirmed: true,
+            presetNumber: 90,
+          },
+        })
+      ).statusCode,
+    ).toBe(400)
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/commands',
+      payload: { type: 'preset', preset: 'Wide', confirmed: true },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().camera).toMatchObject({
+      preset: null,
+      lastRequestedPreset: 'Wide',
+    })
+    expect(
+      send.mock.calls.filter((call) => call[0].includes('poscall')),
+    ).toHaveLength(1)
+    expect(startStream).not.toHaveBeenCalled()
+    expect(stopStream).not.toHaveBeenCalled()
+    expect(response.body).not.toContain('192.168.100.76')
+  })
+
+  it('redacts camera errors and serializes overlapping real recall commands', async () => {
+    let release!: () => void
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const send = vi.fn(async (url: string) => {
+      if (url.includes('get_device_conf'))
+        return new Response(
+          JSON.stringify({ status: 200, data: { devname: 'ptzopticsmove4k' } }),
+        )
+      entered()
+      await gate
+      throw new Error('private-camera-password')
+    })
+    const adapters = createMockAdapters()
+    adapters.mode = 'obs'
+    adapters.camera = createPtzOpticsAdapter(
+      {
+        origin: 'http://192.168.100.76',
+        presets: { Wide: 7 },
+        confirmed: true,
+        algorithm: 'SHA-256',
+      },
+      send,
+    )
+    const app = createApp(adapters)
+    const request = {
+      method: 'POST' as const,
+      url: '/api/commands',
+      payload: { type: 'preset', preset: 'Wide', confirmed: true },
+    }
+    const first = app.inject(request).then((response) => response)
+    await started
+    try {
+      expect((await app.inject(request)).statusCode).toBe(409)
+    } finally {
+      release()
+    }
+    const response = await first
+    expect(response.statusCode).toBe(500)
+    expect(response.body).not.toContain('private-camera-password')
+    expect(
+      send.mock.calls.filter((call) => call[0].includes('poscall')),
+    ).toHaveLength(1)
+  })
+
   it('returns validated, non-cacheable mock status', async () => {
     const response = await createApp().inject('/api/status')
     expect(response.statusCode).toBe(200)
@@ -331,5 +490,232 @@ describe('simulation API', () => {
     })
     expect(statusSchema.parse(ended.json()).broadcast.state).toBe('idle')
     expect(calls).toContain('StopStream')
+  })
+})
+
+describe('OBS program scene switching', () => {
+  function fixture(
+    names: Partial<Record<CameraSource, string>> = {
+      main: 'Main Camera OBS',
+      congregation: 'Congregation OBS',
+    },
+  ) {
+    const state = {
+      current: 'Main Camera OBS',
+      preview: 'Congregation OBS',
+      scenes: ['Main Camera OBS', 'Congregation OBS'],
+      listFails: false,
+      switchFails: false,
+      noChange: false,
+    }
+    const calls: string[] = []
+    const switched = vi.fn((sceneName: string) => {
+      if (!state.noChange) state.current = sceneName
+      if (state.switchFails) throw new Error('private-obs-scene-error')
+    })
+    const client = {
+      identified: true,
+      on() {},
+      async connect() {},
+      async disconnect() {},
+      async call(request: string, data?: { sceneName: string }) {
+        calls.push(request)
+        if (request === 'GetStreamStatus') return { outputActive: true }
+        if (request === 'GetRecordStatus') return { outputActive: true }
+        if (request === 'GetSceneList') {
+          if (state.listFails) throw new Error('private-scene-list-error')
+          return {
+            currentProgramSceneName: state.current,
+            currentPreviewSceneName: state.preview,
+            scenes: state.scenes.map((sceneName) => ({ sceneName })),
+          }
+        }
+        if (request === 'SetCurrentProgramScene') {
+          switched(data!.sceneName)
+          return {}
+        }
+        throw new Error('Unexpected OBS request')
+      },
+    } as unknown as OBSWebSocket
+    const adapters = createObsAdapters(
+      'ws://127.0.0.1:4455',
+      'fixture-password',
+      client,
+      names,
+    )
+    return { state, calls, switched, adapters, app: createApp(adapters) }
+  }
+
+  it('switches program output, not Studio Mode preview, and leaves streaming/recording unchanged', async () => {
+    const { app, state, calls, switched } = fixture()
+    const before = (await app.inject('/api/status')).json()
+    expect(before.obs.scenes).toEqual({
+      connection: 'connected',
+      configured: ['main', 'congregation'],
+      available: ['main', 'congregation'],
+      active: 'main',
+    })
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/commands',
+      payload: { type: 'scene', source: 'congregation', confirmed: true },
+    })
+    expect(response.statusCode).toBe(200)
+    expect(response.json().obs.scenes.active).toBe('congregation')
+    expect(response.json().broadcast.state).toBe('streaming')
+    expect(response.json().obs.recording).toBe(true)
+    expect(switched).toHaveBeenCalledExactlyOnceWith('Congregation OBS')
+    expect(state.current).toBe('Congregation OBS')
+    expect(calls.filter((call) => !call.startsWith('Get'))).toEqual([
+      'SetCurrentProgramScene',
+    ])
+    state.current = 'Opening slide'
+    expect(
+      (await app.inject('/api/status')).json().obs.scenes.active,
+    ).toBeNull()
+  })
+
+  it('rejects unconfirmed and arbitrary scene requests without switching', async () => {
+    const { app, switched } = fixture()
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/commands',
+          payload: { type: 'scene', source: 'congregation' },
+        })
+      ).statusCode,
+    ).toBe(409)
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/commands',
+          payload: { type: 'scene', source: 'other', confirmed: true },
+        })
+      ).statusCode,
+    ).toBe(400)
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/commands',
+          payload: {
+            type: 'scene',
+            source: 'main',
+            sceneName: 'Other Scene',
+            confirmed: true,
+          },
+        })
+      ).statusCode,
+    ).toBe(400)
+    expect(switched).not.toHaveBeenCalled()
+  })
+
+  it('does not guess mappings or query scenes before they are configured', async () => {
+    const { app, calls, switched } = fixture({})
+    const status = (await app.inject('/api/status')).json()
+    expect(status.obs.scenes.available).toEqual([])
+    expect(status.obs.scenes.active).toBeNull()
+    expect(calls).not.toContain('GetSceneList')
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/commands',
+          payload: { type: 'scene', source: 'main', confirmed: true },
+        })
+      ).statusCode,
+    ).toBe(409)
+    expect(switched).not.toHaveBeenCalled()
+  })
+
+  it('disables missing scenes instead of creating them and avoids switching an already active scene', async () => {
+    const { app, state, switched } = fixture()
+    state.scenes = ['Main Camera OBS']
+    expect(
+      (await app.inject('/api/status')).json().obs.scenes.available,
+    ).toEqual(['main'])
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/commands',
+          payload: { type: 'scene', source: 'congregation', confirmed: true },
+        })
+      ).statusCode,
+    ).toBe(409)
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/commands',
+          payload: { type: 'scene', source: 'main', confirmed: true },
+        })
+      ).statusCode,
+    ).toBe(200)
+    expect(switched).not.toHaveBeenCalled()
+  })
+
+  it('treats scene-list failure separately from an otherwise connected OBS stream', async () => {
+    const { app, state, switched } = fixture()
+    state.listFails = true
+    const response = await app.inject('/api/status')
+    expect(response.statusCode).toBe(200)
+    expect(response.json().obs.connection).toBe('connected')
+    expect(response.json().obs.scenes).toMatchObject({
+      connection: 'disconnected',
+      active: null,
+      available: [],
+    })
+    expect(response.body).not.toContain('private-scene-list-error')
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/api/commands',
+          payload: { type: 'scene', source: 'main', confirmed: true },
+        })
+      ).statusCode,
+    ).toBe(409)
+    expect(switched).not.toHaveBeenCalled()
+  })
+
+  it.each(['switchFails', 'noChange'] as const)(
+    'does not optimistically select a scene or retry after %s',
+    async (failure) => {
+      const { app, state, switched } = fixture()
+      state[failure] = true
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/commands',
+        payload: { type: 'scene', source: 'congregation', confirmed: true },
+      })
+      expect(response.statusCode).toBe(500)
+      expect(response.body).not.toContain('private-obs-scene-error')
+      expect(switched).toHaveBeenCalledTimes(1)
+      expect((await app.inject('/api/status')).json().obs.scenes.active).toBe(
+        failure === 'switchFails' ? 'congregation' : 'main',
+      )
+    },
+  )
+
+  it('rejects invalid or duplicate scene mappings without exposing values', () => {
+    for (const mappings of [
+      { OBS_SCENE_MAIN: '' },
+      { OBS_SCENE_MAIN: 'Same', OBS_SCENE_CONGREGATION: 'Same' },
+      { OBS_SCENE_MAIN: 'invalid\nname' },
+    ]) {
+      expect(() =>
+        createConfiguredAdapters({
+          OBS_WEBSOCKET_URL: 'ws://127.0.0.1:4455',
+          OBS_WEBSOCKET_PASSWORD: 'fixture-password',
+          ...mappings,
+        }),
+      ).toThrow()
+    }
+    expect(() =>
+      createConfiguredAdapters({ OBS_SCENE_MAIN: 'Main Camera OBS' }),
+    ).toThrow('Configure OBS WebSocket')
   })
 })
