@@ -21,6 +21,28 @@ const deviceSchema = z.object({
   status: z.literal(200),
   data: z.object({ devname: z.string().min(1) }),
 })
+const legacyDeviceSchema = z.object({
+  devname: z.string().min(1),
+  devtype: z.string().min(1),
+  versioninfo: z.string().min(1),
+})
+
+function validateDeviceInfo(text: string): void {
+  const body = text.trim()
+  if (body.startsWith('{')) {
+    deviceSchema.parse(JSON.parse(body))
+    return
+  }
+  const fields = new Map<string, unknown>()
+  for (const line of body.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    const match = /^\s*([a-z_]+)\s*=\s*("(?:[^"\\]|\\.)*")\s*;?\s*$/.exec(line)
+    if (!match || fields.has(match[1]!))
+      throw new Error('Invalid camera device information')
+    fields.set(match[1]!, JSON.parse(match[2]!))
+  }
+  legacyDeviceSchema.parse(Object.fromEntries(fields))
+}
 
 export interface CameraConfig {
   origin: string
@@ -179,7 +201,7 @@ export function createPtzOpticsAdapter(
     checking ??= (async () => {
       try {
         const text = await request('/cgi-bin/param.cgi?get_device_conf')
-        deviceSchema.parse(JSON.parse(text))
+        validateDeviceInfo(text)
         connected = true
       } catch {
         connected = false

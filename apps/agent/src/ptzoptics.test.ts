@@ -336,6 +336,55 @@ describe('PTZOptics preset recall', () => {
     expect(send).toHaveBeenCalledTimes(1)
   })
 
+  it.each(['\n', '\r\n'])(
+    'accepts legacy Move 4K device information without executing it or exposing device identifiers: %j',
+    async (newline) => {
+      const body = [
+        'devname="ptzoptics"',
+        'devtype="VX630A"',
+        'mirrors="https://firmware.ptzoptics.com/"',
+        'versioninfo="SOC v2.0.39 - ARM 6.0.30SHIS"',
+        'serial_num="fixture-device-serial"',
+        'device_model="F53.HI"',
+      ].join(newline)
+      const send = vi.fn(async () => new Response(body))
+      const adapter = createPtzOpticsAdapter(
+        { ...config, presets: {}, confirmed: false },
+        send,
+      )
+      const status = await adapter.getStatus()
+      expect(status).toMatchObject({
+        connection: 'connected',
+        preset: null,
+        availablePresets: [],
+        manualEnabled: false,
+      })
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(send.mock.calls[0]?.[0]).toBe(
+        `${config.origin}/cgi-bin/param.cgi?get_device_conf`,
+      )
+      expect(JSON.stringify(status)).not.toContain('fixture-device-serial')
+      expect(JSON.stringify(status)).not.toContain('SOC v2.0.39')
+    },
+  )
+
+  it.each([
+    'devname="ptzoptics"',
+    'devname="ptzoptics"\ndevtype="VX630A"\nversioninfo=""',
+    'devname="ptzoptics"\ndevtype="VX630A"\nversioninfo="firmware"\ndevname="duplicate"',
+    'devname="ptzoptics"\ndevtype="VX630A"\nversioninfo="firmware"\nalert("not data")',
+    'devname="ptzoptics"\ndevtype=VX630A\nversioninfo="firmware"',
+  ])(
+    'rejects incomplete, duplicate, or executable legacy device replies: %j',
+    async (body) => {
+      const send = vi.fn(async () => new Response(body))
+      expect(
+        (await createPtzOpticsAdapter(config, send).getStatus()).connection,
+      ).toBe('disconnected')
+      expect(send).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it('requires confirmed mappings and rejects unmapped labels before any request', async () => {
     const send = vi.fn()
     const adapter = createPtzOpticsAdapter(
