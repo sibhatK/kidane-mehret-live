@@ -1,0 +1,40 @@
+{
+  "name": "kidane-mehret-live",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local livestream controls for Kidane Mehret Church",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
+  },
+  "scripts": {
+    "live": "bash scripts/start-mac.sh",
+    "health": "node --import tsx scripts/health-check.ts",
+    "dev": "npm run build -w @kidane/shared && concurrently -k -n contracts,agent,dashboard \"npm run dev -w @kidane/shared\" \"npm run dev -w @kidane/agent\" \"npm run dev -w @kidane/dashboard\"",
+    "build": "npm run build -w @kidane/shared && npm run build -w @kidane/agent && npm run build -w @kidane/dashboard",
+    "start": "npm run start -w @kidane/agent",
+    "mediamtx:start": "bash scripts/mediamtx.sh start",
+    "mediamtx:stop": "bash scripts/mediamtx.sh stop",
+    "mediamtx:native:logs": "bash scripts/mediamtx-native.sh logs",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "test": "npm run build -w @kidane/shared && vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.6.5",
+    "concurrently": "10.0.6",
+    "eslint": "10.13.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.7",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.71.2",
+    "vitest": "5.0.5"
+  }
+}

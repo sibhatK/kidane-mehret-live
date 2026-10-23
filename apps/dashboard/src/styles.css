@@ -1,0 +1,165 @@
+@import 'tailwindcss';
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #18181b;
+  background: #f4f4f5;
+  color-scheme: light;
+  --surface: #ffffff;
+  --surface-muted: #f4f4f5;
+  --border: #d4d4d8;
+  --text-muted: #52525b;
+  --tone-ink: #52525b;
+  --tone-bg: #f4f4f5;
+  --tone-border: #d4d4d8;
+  font-synthesis: none;
+  letter-spacing: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background-image: linear-gradient(180deg, #fafafa, #f4f4f5);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+[data-tone='success'] {
+  --tone-ink: #166534;
+  --tone-bg: #f0fdf4;
+  --tone-border: #86b99a;
+}
+
+[data-tone='danger'] {
+  --tone-ink: #b91c1c;
+  --tone-bg: #fef2f2;
+  --tone-border: #e8a0a0;
+}
+
+[data-tone='warning'] {
+  --tone-ink: #92400e;
+  --tone-bg: #fffbeb;
+  --tone-border: #d8b663;
+}
+
+[data-tone='neutral'] {
+  --tone-ink: #52525b;
+  --tone-bg: #f4f4f5;
+  --tone-border: #d4d4d8;
+}
+
+@layer components {
+  .text-muted {
+    color: var(--text-muted);
+  }
+
+  .divider {
+    border-color: var(--border);
+  }
+
+  .panel {
+    @apply rounded-lg border p-4;
+    border-color: var(--border);
+    background: var(--surface);
+  }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase;
+    color: var(--text-muted);
+  }
+
+  .control {
+    @apply min-h-14 cursor-pointer rounded-lg border px-4 py-3 font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 disabled:cursor-not-allowed;
+    border-color: #a1a1aa;
+    background: var(--surface);
+    color: #27272a;
+    outline-color: #1d4ed8;
+  }
+
+  .control:hover:not(:disabled) {
+    background: #e4e4e7;
+  }
+
+  .control[aria-pressed='true'] {
+    border-color: #52525b;
+    background: #e4e4e7;
+  }
+
+  .control-primary {
+    border-color: #27272a;
+    background: #27272a;
+    color: #ffffff;
+  }
+
+  .control-primary:hover:not(:disabled) {
+    background: #18181b;
+  }
+
+  .control-success {
+    border-color: #166534;
+    background: #166534;
+    color: #ffffff;
+  }
+
+  .control-success:hover:not(:disabled) {
+    background: #14532d;
+  }
+
+  .control-danger {
+    border-color: #b91c1c;
+    background: #b91c1c;
+    color: #ffffff;
+  }
+
+  .control-danger:hover:not(:disabled) {
+    background: #991b1b;
+  }
+
+  .control:disabled {
+    background: #f4f4f5;
+    border-color: #d4d4d8;
+    color: #71717a;
+  }
+
+  .status-badge {
+    @apply inline-flex items-center rounded-md border px-3 py-1.5 text-sm font-semibold;
+    color: var(--tone-ink);
+    background: var(--tone-bg);
+    border-color: var(--tone-border);
+  }
+
+  .status-callout {
+    @apply rounded-md border border-l-4 px-4 py-3;
+    color: var(--tone-ink);
+    background: var(--tone-bg);
+    border-color: var(--tone-border);
+    border-left-color: var(--tone-ink);
+  }
+
+  .status-copy {
+    color: var(--tone-ink);
+  }
+
+  .status-dot {
+    @apply mr-2 inline-block size-2 rounded-full;
+    background: var(--tone-ink);
+  }
+
+  .meter-track {
+    @apply mt-1 h-3 overflow-hidden rounded;
+    background: #e4e4e7;
+  }
+
+  .meter-fill {
+    height: 100%;
+    background: var(--tone-ink);
+  }
+
+  .preview-frame {
+    @apply mt-4 aspect-video overflow-hidden rounded-lg border;
+    background: var(--surface-muted);
+    border-color: var(--border);
+  }
+}
