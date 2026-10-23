@@ -14,7 +14,11 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
-    allowedHosts: codespacesHost ? [codespacesHost] : [],
+    allowedHosts: [
+      'sibhats-macbook-air.local',
+      'mac-mini.local',
+      ...(codespacesHost ? [codespacesHost] : []),
+    ],
     proxy: { '/api': 'http://127.0.0.1:3001' },
   },
   preview: {

@@ -4,6 +4,83 @@ This guide starts the React dashboard, local Fastify agent, and optional
 MediaMTX WebRTC preview. It does not configure OBS sources, change church network
 settings, or start a YouTube broadcast for you.
 
+## Every Restart: One Command, One Link
+
+After initial setup, open OBS and run this from the project folder:
+
+```sh
+npm run live
+```
+
+If a new terminal cannot find npm, run `bash scripts/start-mac.sh` instead. It
+also checks the user-local Node installation and nvm. Keep the terminal open.
+
+Startup detects the current Wi-Fi IPv4 address and the Mac's LocalHostName,
+refreshes MediaMTX with that address, and starts the agent and dashboard. It
+overrides old preview settings for this run without editing environment files
+or OBS credentials. It allows only this Mac's hostname in addition to the
+existing Vite allowlist, not every host.
+
+Save the printed **Saved iPad link** as a bookmark. On the home MacBook this is
+`http://sibhats-macbook-air.local:5173`; on the church Mac mini it is expected to
+be `http://mac-mini.local:5173` (confirm its LocalHostName there). The preview
+uses the same Mac name, so neither link needs a manually entered IP address.
+Both devices must be on the same trusted LAN with local device discovery
+permitted. Guest Wi-Fi or client isolation can prevent `.local` names working.
+
+In OBS, manually start only the **Local Preview** WHIP target after startup.
+This command never starts or stops a YouTube broadcast or recording. Refreshing
+MediaMTX interrupts any existing local preview connection, so reconnect the
+Local Preview output if needed. Stop the dashboard with `Ctrl+C`; stop MediaMTX
+separately with `npm run mediamtx:stop`.
+
+### Readiness and Failure Instructions
+
+Startup checks whether ports `5173` or `3001` are already occupied before it
+refreshes any services. After launching the app, it waits up to about 30 seconds
+for service responses and prints a read-only report:
+
+- **PASS:** the specific check succeeded, not a promise that the whole stream works.
+- **FAIL:** a required local service check failed. Follow **Fix this first**;
+  it gives one numbered recovery path instead of asking you to fix everything
+  at once. Credentials and raw adapter errors are never printed in this report.
+- **NOT VERIFIED:** requires an operator check, such as iPad video playback or
+  YouTube delivery. Missing or silent audio samples are not automatically called
+  an audio failure.
+
+The report checks dashboard HTTP, validated agent status, the dashboard API
+proxy, OBS authentication/status, meter payloads and sample freshness, MediaMTX
+HTTP, `.local` page access from this Mac, and a local UDP `8189` socket. A bound
+UDP socket does not prove WebRTC media crosses the LAN. `.local` access from
+this Mac does not prove that an iPad can resolve the name or pass the firewall.
+
+If settings need fixing, the dashboard stays available; no broadcast is started
+or stopped. After fixing the first reported issue, open another terminal in
+the same project folder and run:
+
+```sh
+npm run health
+```
+
+If you edited the root `.env`, stop the app with `Ctrl+C` and rerun
+`npm run live` first so the agent reloads it. Then repeat the health check.
+Health checks use GET requests only and return exit code `1` on a failed
+service check. Exit code `0` still does not mean iPad playback, source routing,
+YouTube, recording, or PTZ have been verified. The report is a startup snapshot,
+not a continuous service monitor. The normal dashboard status polling continues.
+
+To check detection without starting or stopping anything:
+
+```sh
+bash scripts/start-mac.sh --check
+```
+
+If Wi-Fi or DHCP changes while running, stop the dashboard and rerun startup.
+Detection happens at startup, not continuously. For Ethernet or another
+trusted LAN interface, explicitly override the detected address with
+`MEDIAMTX_LAN_IP=<current IPv4 address> npm run live`. You can select a runtime
+with `MEDIAMTX_BACKEND=native npm run live` or `MEDIAMTX_BACKEND=docker npm run live`.
+
 ## One-Command Setup
 
 On a new Mac mini, review the bootstrap script before running it. It uses Docker

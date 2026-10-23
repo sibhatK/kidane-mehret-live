@@ -12,6 +12,8 @@
     "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
   },
   "scripts": {
+    "live": "bash scripts/start-mac.sh",
+    "health": "node --import tsx scripts/health-check.ts",
     "dev": "npm run build -w @kidane/shared && concurrently -k -n contracts,agent,dashboard \"npm run dev -w @kidane/shared\" \"npm run dev -w @kidane/agent\" \"npm run dev -w @kidane/dashboard\"",
     "build": "npm run build -w @kidane/shared && npm run build -w @kidane/agent && npm run build -w @kidane/dashboard",
     "start": "npm run start -w @kidane/agent",

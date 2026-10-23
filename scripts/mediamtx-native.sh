@@ -96,6 +96,15 @@ case "${1:-start}" in
     if process_is_running; then
       pid="$(<"$PID_FILE")"
       kill "$pid"
+      for ((attempt = 1; attempt <= 50; attempt++)); do
+        if ! process_is_running; then
+          break
+        fi
+        sleep 0.1
+      done
+      if process_is_running; then
+        fail "MediaMTX did not stop within 5 seconds. Check its log before restarting."
+      fi
       printf 'Stopped native MediaMTX (PID %s).\n' "$pid"
     else
       printf 'Native MediaMTX is not running.\n'
