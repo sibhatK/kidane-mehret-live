@@ -1,6 +1,10 @@
 import process from 'node:process'
 import { spawn } from 'node:child_process'
-import { readinessChecks, printReadiness } from './health-check.js'
+import {
+  readinessChecks,
+  printReadiness,
+  openDashboard,
+} from './health-check.js'
 
 const controller = new AbortController()
 const app = spawn('npm', ['run', 'dev'], { stdio: 'inherit', detached: true })
@@ -26,6 +30,7 @@ function stop(signal: NodeJS.Signals) {
 
 process.once('SIGINT', () => stop('SIGINT'))
 process.once('SIGTERM', () => stop('SIGTERM'))
+process.once('SIGHUP', () => stop('SIGTERM'))
 
 const exited = new Promise<number>((resolve) => {
   app.once('error', () => resolve(1))
@@ -33,8 +38,11 @@ const exited = new Promise<number>((resolve) => {
 })
 
 const checking = readinessChecks({ waitMs: 30_000, signal: controller.signal })
-  .then((checks) => {
-    if (!controller.signal.aborted) printReadiness(checks)
+  .then(async (checks) => {
+    if (controller.signal.aborted) return
+    printReadiness(checks)
+    if (process.env.KIDANE_OPEN_BROWSER === '1' && !controller.signal.aborted)
+      await openDashboard(checks)
   })
   .catch(() => {
     if (!controller.signal.aborted)

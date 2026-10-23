@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { OBSWebSocket } from 'obs-websocket-js'
+import { request as httpRequest } from 'node:http'
 import {
   statusSchema,
   type BroadcastAction,
@@ -25,6 +26,153 @@ afterEach(async () => {
 })
 
 describe('simulation API', () => {
+  it('allows camera Stop immediately while a normal command is busy and does not query OBS', async () => {
+    const adapters = createMockAdapters()
+    let entered!: () => void
+    let release!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    adapters.obs.prepare = async () => {
+      entered()
+      await gate
+    }
+    const stop = vi.spyOn(adapters.camera, 'stop')
+    const status = vi.spyOn(adapters.obs, 'getStatus')
+    const app = createApp(adapters)
+    const first = app
+      .inject({
+        method: 'POST',
+        url: '/api/commands',
+        payload: { type: 'broadcast', action: 'prepare' },
+      })
+      .then((response) => response)
+    await started
+    const count = status.mock.calls.length
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/commands',
+        payload: { type: 'ptz', action: 'stop' },
+      })
+      expect(response.statusCode).toBe(200)
+      expect(response.json()).toEqual({ acknowledged: true })
+      expect(status).toHaveBeenCalledTimes(count)
+      expect(stop).toHaveBeenCalledTimes(1)
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/commands',
+            payload: { type: 'ptz', action: 'left', confirmed: true },
+          })
+        ).statusCode,
+      ).toBe(409)
+    } finally {
+      release()
+    }
+    await first
+  })
+
+  it('cancels camera movement still waiting on API preflight when Stop arrives', async () => {
+    const adapters = createMockAdapters()
+    let entered!: () => void
+    let release!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const original = adapters.camera.getStatus
+    adapters.camera.getStatus = async () => {
+      entered()
+      await gate
+      return original()
+    }
+    const nudge = vi.spyOn(adapters.camera, 'nudge')
+    const app = createApp(adapters)
+    const first = app
+      .inject({
+        method: 'POST',
+        url: '/api/commands',
+        payload: { type: 'ptz', action: 'left', confirmed: true },
+      })
+      .then((response) => response)
+    await started
+    try {
+      expect(
+        (
+          await app.inject({
+            method: 'POST',
+            url: '/api/commands',
+            payload: { type: 'ptz', action: 'stop' },
+          })
+        ).statusCode,
+      ).toBe(200)
+    } finally {
+      release()
+    }
+    expect((await first).statusCode).toBe(409)
+    expect(nudge).not.toHaveBeenCalled()
+  })
+
+  it('reports failed Stop as an error instead of acknowledging it', async () => {
+    const adapters = createMockAdapters()
+    vi.spyOn(adapters.camera, 'stop').mockRejectedValue(
+      new Error('private-stop-error'),
+    )
+    const response = await createApp(adapters).inject({
+      method: 'POST',
+      url: '/api/commands',
+      payload: { type: 'ptz', action: 'stop' },
+    })
+    expect(response.statusCode).toBe(500)
+    expect(response.body).not.toContain('acknowledged')
+    expect(response.body).not.toContain('private-stop-error')
+  })
+
+  it('attempts camera Stop when a client disconnects during an adjustment', async () => {
+    const adapters = createMockAdapters()
+    let entered!: () => void
+    let release!: () => void
+    let stopped!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const stopReceived = new Promise<void>((resolve) => {
+      stopped = resolve
+    })
+    adapters.camera.nudge = async () => {
+      entered()
+      await gate
+    }
+    const stop = vi
+      .spyOn(adapters.camera, 'stop')
+      .mockImplementation(async () => {
+        stopped()
+        release()
+      })
+    const app = createApp(adapters)
+    const address = await app.listen({ port: 0, host: '127.0.0.1' })
+    const client = httpRequest(`${address}/api/commands`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    })
+    client.on('error', () => undefined)
+    client.end(JSON.stringify({ type: 'ptz', action: 'left', confirmed: true }))
+    await started
+    client.destroy()
+    await stopReceived
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
   it('switches simulated camera sources without starting or stopping any stream', async () => {
     const adapters = createMockAdapters()
     const start = vi.spyOn(adapters.obs, 'startStream')

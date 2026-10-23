@@ -3,6 +3,7 @@ import {
   canExecute,
   commandSchema,
   audioMetersSchema,
+  cameraStopSchema,
   statusSchema,
   type Status,
 } from '@kidane/shared'
@@ -11,6 +12,7 @@ import { createMockAdapters, type Adapters } from './adapters.js'
 export function buildApp(adapters: Adapters = createMockAdapters()) {
   const app = Fastify({ logger: false, bodyLimit: 4096 })
   let commandPending = false
+  let cameraStopVersion = 0
 
   async function getStatus(): Promise<Status> {
     const [camera, audio, obs, broadcast] = await Promise.all([
@@ -33,7 +35,16 @@ export function buildApp(adapters: Adapters = createMockAdapters()) {
     reply.header('X-Content-Type-Options', 'nosniff')
   })
 
-  app.addHook('onClose', async () => adapters.obs.close())
+  app.addHook('onClose', async () => {
+    const results = await Promise.allSettled([
+      adapters.camera.close(),
+      adapters.obs.close(),
+    ])
+    if (results[0]?.status === 'rejected')
+      console.warn(
+        '[WARNING] Camera Stop was not confirmed during shutdown. Use the physical camera remote.',
+      )
+  })
 
   app.get<{ Reply: Status }>('/api/status', async () => getStatus())
 
@@ -49,18 +60,50 @@ export function buildApp(adapters: Adapters = createMockAdapters()) {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'Invalid command' })
     }
+    if (parsed.data.type === 'ptz' && parsed.data.action === 'stop') {
+      cameraStopVersion++
+      await adapters.camera.stop()
+      return cameraStopSchema.parse({ acknowledged: true })
+    }
     if (commandPending) {
       return reply.code(409).send({ error: 'Another command is pending' })
     }
     commandPending = true
+    const stopVersion = cameraStopVersion
+    const cameraCommand =
+      parsed.data.type === 'ptz' || parsed.data.type === 'preset'
+    const stopOnDisconnect = () => {
+      if (!reply.raw.writableFinished) {
+        cameraStopVersion++
+        void adapters.camera
+          .stop()
+          .catch(() =>
+            console.warn(
+              '[WARNING] Camera Stop was not confirmed after client disconnection. Use the physical camera remote.',
+            ),
+          )
+      }
+    }
+    if (cameraCommand) reply.raw.once('close', stopOnDisconnect)
     try {
       const status = await getStatus()
       const command = parsed.data
+      if (
+        (command.type === 'ptz' || command.type === 'preset') &&
+        stopVersion !== cameraStopVersion
+      ) {
+        return reply
+          .code(409)
+          .send({ error: 'Camera command was cancelled by Stop' })
+      }
       if (!canExecute(status, command)) {
         return reply.code(409).send({ error: 'Command is not available' })
       }
       if (command.type === 'preset') {
         await adapters.camera.selectPreset(command.preset)
+      } else if (command.type === 'ptz') {
+        if (command.action !== 'stop')
+          await adapters.camera.nudge(command.action)
       } else if (command.type === 'scene') {
         await adapters.obs.selectScene(command.source)
       } else {
@@ -78,6 +121,7 @@ export function buildApp(adapters: Adapters = createMockAdapters()) {
       }
       return await getStatus()
     } finally {
+      if (cameraCommand) reply.raw.removeListener('close', stopOnDisconnect)
       commandPending = false
     }
   })

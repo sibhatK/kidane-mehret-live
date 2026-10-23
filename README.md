@@ -58,8 +58,9 @@ Basic settings should be limited to values required to connect the single
 camera, audio feed, OBS, and one YouTube destination; place them in context or
 an in-screen panel, not a separate settings screen. Keep credentials out of the
 dashboard. OBS stream controls are available in the explicitly configured local
-OBS mode described below. Camera PTZ remains unintegrated; the optional live
-OBS preview is provided separately through MediaMTX.
+OBS mode described below. Opt-in PTZOptics preset recall and bounded manual
+adjustments are available; the optional OBS preview is provided separately
+through MediaMTX. Physical movement still needs a supervised hardware test.
 
 ## Installation and development
 
@@ -139,7 +140,8 @@ status comes from OBS. OBS input meter events appear by source name; their
 mapping to the church mixer is not yet verified. When configured, MediaMTX
 provides the browser video preview. Verify audio in OBS before starting, then
 confirm YouTube delivery in YouTube Studio. Opt-in PTZOptics preset recall is
-available with operator-verified mappings; directional PTZ remains unintegrated.
+available with operator-verified mappings. Manual adjustments require separate
+opt-in and a supervised speed/direction/Stop test before church use.
 The dashboard has no user authentication; use it only on a trusted, private
 network. Browser confirmation is not access control.
 
@@ -164,7 +166,11 @@ and optional MediaMTX preview**, not a production broadcast system:
   read-only; actual position and NDI video health remain unverified. Without
   camera configuration, real preset buttons stay disabled. See
   [GETTING_STARTED.md](GETTING_STARTED.md) before configuring hardware.
-- Audio health and directional physical PTZ remain unintegrated. The
+- Optional slow manual pan, tilt, zoom, and priority Stop are available behind
+  `PTZ_MANUAL_ENABLED=true` and an operator movement lock. Nudges are bounded,
+  with automatic Stop attempts and a physical-remote fallback; real hardware
+  direction, speed, and stop behavior remain unverified.
+- Audio source routing remains unverified. The
   OBS meter source is not yet mapped specifically to the church mixer. OBS
   output-active does not independently prove YouTube delivery, and the app
   does not configure the YouTube destination or control recording.

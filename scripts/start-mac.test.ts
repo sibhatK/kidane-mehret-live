@@ -13,6 +13,137 @@ import { spawnSync } from 'node:child_process'
 import process from 'node:process'
 
 describe('Mac live startup', () => {
+  it('runs the double-click launcher from its own folder, even with spaces in its path', () => {
+    const folder = join(directory, 'project with spaces')
+    mkdirSync(join(folder, 'scripts'), { recursive: true })
+    const launcher = join(folder, 'Start Kidane Mehret.command')
+    copyFileSync(
+      new URL('../Start Kidane Mehret.command', import.meta.url),
+      launcher,
+    )
+    writeFileSync(
+      join(folder, 'scripts/start-mac.sh'),
+      'printf "launcher:%s|%s\\n" "$1" "$PWD" >> "$CALL_LOG"\n',
+    )
+    const result = spawnSync('/bin/bash', [launcher], {
+      cwd: '/',
+      encoding: 'utf8',
+      env: {
+        PATH: `${join(directory, 'bin')}:/usr/bin:/bin`,
+        CALL_LOG: logFile,
+      },
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(readFileSync(logFile, 'utf8')).toBe(
+      `launcher:--open-browser|${folder}\n`,
+    )
+    expect(result.stdout).toContain(
+      'No broadcast or recording starts automatically',
+    )
+    expect(() =>
+      readFileSync(join(folder, '.cache/mac-launcher.lock/pid')),
+    ).toThrow()
+  })
+
+  it('keeps the launcher failure guidance and exit code without starting anything else', () => {
+    const launcher = join(directory, 'Start Kidane Mehret.command')
+    copyFileSync(
+      new URL('../Start Kidane Mehret.command', import.meta.url),
+      launcher,
+    )
+    writeFileSync(
+      join(directory, 'scripts/start-mac.sh'),
+      'printf "[FAIL] Fixture startup error\\n"; exit 7\n',
+    )
+    const result = spawnSync('/bin/bash', [launcher], {
+      encoding: 'utf8',
+      env: { PATH: `${join(directory, 'bin')}:/usr/bin:/bin` },
+    })
+    expect(result.status).toBe(7)
+    expect(result.stdout).toContain('Fixture startup error')
+    expect(result.stdout).toContain('Next step: follow the first error above')
+  })
+
+  it('reuses an active launcher without restarting its services or removing its lock', () => {
+    const launcher = join(directory, 'Start Kidane Mehret.command')
+    copyFileSync(
+      new URL('../Start Kidane Mehret.command', import.meta.url),
+      launcher,
+    )
+    const lock = join(directory, '.cache/mac-launcher.lock')
+    mkdirSync(lock, { recursive: true })
+    writeFileSync(join(lock, 'pid'), String(process.pid))
+    writeFileSync(
+      join(directory, 'scripts/start-mac.sh'),
+      'printf "reuse:%s\\n" "$1" >> "$CALL_LOG"\n',
+    )
+    const result = spawnSync('/bin/bash', [launcher], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${join(directory, 'bin')}:/usr/bin:/bin`,
+        CALL_LOG: logFile,
+        MOCK_PROCESS_COMMAND: `/bin/bash ${launcher}`,
+      },
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(readFileSync(logFile, 'utf8')).toBe('reuse:--open-existing\n')
+    expect(readFileSync(join(lock, 'pid'), 'utf8')).toBe(String(process.pid))
+  })
+
+  it('does not start a second instance while the first launcher is still acquiring its lock', () => {
+    const launcher = join(directory, 'Start Kidane Mehret.command')
+    copyFileSync(
+      new URL('../Start Kidane Mehret.command', import.meta.url),
+      launcher,
+    )
+    mkdirSync(join(directory, '.cache/mac-launcher.lock'), { recursive: true })
+    writeFileSync(
+      join(directory, 'scripts/start-mac.sh'),
+      'printf "reuse:%s\\n" "$1" >> "$CALL_LOG"; exit 1\n',
+    )
+    const result = spawnSync('/bin/bash', [launcher], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${join(directory, 'bin')}:/usr/bin:/bin`,
+        CALL_LOG: logFile,
+      },
+    })
+    expect(result.status).toBe(1)
+    expect(readFileSync(logFile, 'utf8')).toBe('reuse:--open-existing\n')
+    expect(result.stdout).toContain('check the first launcher window')
+  })
+
+  it.each(['99999999', 'garbage', 'reused'])(
+    'recovers a stale launcher lock without signaling another process: %s',
+    (value) => {
+      const launcher = join(directory, 'Start Kidane Mehret.command')
+      copyFileSync(
+        new URL('../Start Kidane Mehret.command', import.meta.url),
+        launcher,
+      )
+      const lock = join(directory, '.cache/mac-launcher.lock')
+      mkdirSync(lock, { recursive: true })
+      writeFileSync(
+        join(lock, 'pid'),
+        value === 'reused' ? String(process.pid) : value,
+      )
+      writeFileSync(
+        join(directory, 'scripts/start-mac.sh'),
+        'printf "launch:%s\\n" "$1" >> "$CALL_LOG"\n',
+      )
+      const result = spawnSync('/bin/bash', [launcher], {
+        encoding: 'utf8',
+        env: {
+          PATH: `${join(directory, 'bin')}:/usr/bin:/bin`,
+          CALL_LOG: logFile,
+        },
+      })
+      expect(result.status, result.stderr).toBe(0)
+      expect(readFileSync(logFile, 'utf8')).toBe('launch:--open-browser\n')
+      expect(() => process.kill(process.pid, 0)).not.toThrow()
+    },
+  )
+
   let directory: string
   let logFile: string
 
@@ -98,6 +229,39 @@ describe('Mac live startup', () => {
     expect(result.stdout).toContain('Wi-Fi/LAN IP: 192.168.1.206')
     expect(result.stdout).toContain('http://mac-mini.local:5173')
     expect(readFileSync(logFile, 'utf8')).toBe('')
+  })
+
+  it('enables automatic opening only for launcher startup', () => {
+    command(
+      'node',
+      'printf "open:%s|%s\\n" "$*" "${KIDANE_OPEN_BROWSER:-}" >> "$CALL_LOG"',
+    )
+    const result = run(['--open-browser'])
+    expect(result.status, result.stderr).toBe(0)
+    expect(readFileSync(logFile, 'utf8')).toContain(
+      'open:--import tsx scripts/live.ts|1',
+    )
+  })
+
+  it.each(['5173', '3001'])(
+    'launcher reuse checks an occupied port %s without restarting preview',
+    (port) => {
+      const result = run(['--open-browser'], { BUSY_PORT: port })
+      expect(result.status, result.stderr).toBe(0)
+      expect(readFileSync(logFile, 'utf8')).toContain(
+        'app:--import tsx scripts/health-check.ts --open-dashboard',
+      )
+      expect(readFileSync(logFile, 'utf8')).not.toContain('media:')
+    },
+  )
+
+  it('can reopen an existing local dashboard without a new Wi-Fi connection or service changes', () => {
+    const result = run(['--open-existing'], { MOCK_IP: '' })
+    expect(result.status, result.stderr).toBe(0)
+    expect(readFileSync(logFile, 'utf8')).toContain(
+      'app:--import tsx scripts/health-check.ts --open-dashboard',
+    )
+    expect(readFileSync(logFile, 'utf8')).not.toContain('media:')
   })
 
   it('hands bootstrap completion to live startup with the selected runtime and IP', () => {

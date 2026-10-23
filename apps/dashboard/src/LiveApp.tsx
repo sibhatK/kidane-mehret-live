@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AudioMeter, Command, Status } from '@kidane/shared'
-import { requestObsAudioMeters, requestStatus } from './api'
+import { requestCameraStop, requestObsAudioMeters, requestStatus } from './api'
 import { Dashboard } from './Dashboard'
 
 export default function LiveApp() {
@@ -9,6 +9,9 @@ export default function LiveApp() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [audioMeters, setAudioMeters] = useState<AudioMeter[]>([])
+  const [cameraNotice, setCameraNotice] = useState<string | null>(null)
+  const pendingCommands = useRef(0)
+  const commandVersion = useRef(0)
   const obsMode = status?.mode === 'obs'
 
   useEffect(() => {
@@ -76,18 +79,38 @@ export default function LiveApp() {
   }, [obsMode])
 
   async function send(command: Command) {
-    if (busy) return
+    const emergencyStop = command.type === 'ptz' && command.action === 'stop'
+    if (pendingCommands.current > 0 && !emergencyStop) return
+    const version = ++commandVersion.current
+    pendingCommands.current++
     setBusy(true)
     setError(null)
+    setCameraNotice(null)
     try {
-      setStatus(await requestStatus(command))
+      if (emergencyStop) {
+        await requestCameraStop()
+        if (version === commandVersion.current)
+          setCameraNotice(
+            'Stop request acknowledged. Check the camera picture.',
+          )
+      } else {
+        const next = await requestStatus(command)
+        if (version === commandVersion.current) setStatus(next)
+      }
     } catch {
-      setStatus(null)
-      setError(
-        'Could not confirm the change. Check the picture and broadcast status before trying again.',
-      )
+      if (version === commandVersion.current) {
+        setStatus(null)
+        setError(
+          emergencyStop
+            ? 'Camera Stop was not confirmed. Use the physical camera remote and check the picture before continuing.'
+            : command.type === 'ptz'
+              ? 'Camera movement could not be confirmed. Press Stop camera and check the picture before continuing.'
+              : 'Could not confirm the change. Check the picture and broadcast status before trying again.',
+        )
+      }
     } finally {
-      setBusy(false)
+      pendingCommands.current--
+      if (pendingCommands.current === 0) setBusy(false)
     }
   }
 
@@ -98,6 +121,7 @@ export default function LiveApp() {
       error={error}
       loading={loading}
       audioMeters={obsMode ? audioMeters : []}
+      cameraNotice={cameraNotice}
       onCommand={(command) => {
         void send(command)
       }}

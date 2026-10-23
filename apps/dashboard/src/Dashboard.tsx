@@ -10,6 +10,7 @@ import {
   type Status,
 } from '@kidane/shared'
 import { CameraPreview } from './CameraPreview'
+import { ManualCameraControls } from './ManualCameraControls'
 
 interface Props {
   status: Status | null
@@ -17,6 +18,7 @@ interface Props {
   loading: boolean
   error: string | null
   audioMeters: AudioMeter[]
+  cameraNotice?: string | null
   onCommand: (command: Command) => void
 }
 
@@ -48,6 +50,7 @@ export function Dashboard({
   loading,
   error,
   audioMeters,
+  cameraNotice = null,
   onCommand,
 }: Props) {
   const obsMode = status?.mode === 'obs'
@@ -375,6 +378,12 @@ export function Dashboard({
               picture.
             </p>
           )}
+          <ManualCameraControls
+            status={status}
+            busy={busy}
+            notice={cameraNotice}
+            onCommand={onCommand}
+          />
         </section>
 
         <section className="min-w-0" aria-labelledby="broadcast-heading">

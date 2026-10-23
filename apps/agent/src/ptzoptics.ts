@@ -2,6 +2,7 @@ import DigestClient from 'digest-fetch'
 import { z } from 'zod'
 import { presetSchema, type Preset, type Status } from '@kidane/shared'
 import type { CameraAdapter } from './adapters.js'
+import { setTimeout as delay } from 'node:timers/promises'
 
 const presetNumberSchema = z
   .number()
@@ -28,6 +29,7 @@ export interface CameraConfig {
   username?: string | undefined
   password?: string | undefined
   algorithm: 'SHA-256' | 'MD5'
+  manualEnabled?: boolean
 }
 
 type CameraFetch = (
@@ -47,6 +49,7 @@ export function cameraConfig(
     'PTZ_CAMERA_USERNAME',
     'PTZ_CAMERA_PASSWORD',
     'PTZ_CAMERA_DIGEST_ALGORITHM',
+    'PTZ_MANUAL_ENABLED',
   ]
   if (!value) {
     if (keys.some((key) => environment[key] !== undefined))
@@ -83,6 +86,10 @@ export function cameraConfig(
     const algorithm = z
       .enum(['SHA-256', 'MD5'])
       .parse(environment.PTZ_CAMERA_DIGEST_ALGORITHM ?? 'SHA-256')
+    const manualEnabled =
+      z
+        .enum(['true', 'false'])
+        .parse(environment.PTZ_MANUAL_ENABLED ?? 'false') === 'true'
     return {
       origin: url.origin,
       presets,
@@ -90,6 +97,7 @@ export function cameraConfig(
       username,
       password,
       algorithm,
+      manualEnabled,
     }
   } catch {
     throw new Error(
@@ -121,8 +129,13 @@ export function createPtzOpticsAdapter(
   let connected = false
   let checkedAt = 0
   let checking: Promise<boolean> | undefined
+  let manualState: 'idle' | 'nudging' | 'stop-unconfirmed' = 'idle'
+  let generation = 0
+  let movement: AbortController | undefined
+  let stopping: Promise<void> | undefined
+  let closed = false
 
-  async function request(path: string) {
+  async function request(path: string, externalSignal?: AbortSignal) {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
@@ -130,7 +143,9 @@ export function createPtzOpticsAdapter(
         method: 'GET',
         redirect: 'error',
         cache: 'no-store',
-        signal: controller.signal,
+        signal: externalSignal
+          ? AbortSignal.any([controller.signal, externalSignal])
+          : controller.signal,
       })
       if (
         response.status !== 200 ||
@@ -152,7 +167,7 @@ export function createPtzOpticsAdapter(
     } catch {
       connected = false
       throw new Error(
-        'Camera request could not be confirmed. Verify the picture before retrying a recall.',
+        'Camera request could not be confirmed. Check the picture and camera controls before retrying.',
       )
     } finally {
       clearTimeout(timer)
@@ -177,6 +192,42 @@ export function createPtzOpticsAdapter(
     return checking
   }
 
+  async function stop(): Promise<void> {
+    generation++
+    movement?.abort()
+    movement = undefined
+    manualState = 'stop-unconfirmed'
+    stopping ??= (async () => {
+      let panStopped = false
+      let zoomStopped = false
+      try {
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const results: PromiseSettledResult<unknown>[] =
+            await Promise.allSettled([
+              panStopped
+                ? Promise.resolve()
+                : request('/cgi-bin/ptzctrl.cgi?ptzcmd&ptzstop&0&0'),
+              zoomStopped
+                ? Promise.resolve()
+                : request('/cgi-bin/ptzctrl.cgi?ptzcmd&zoomstop'),
+            ])
+          panStopped ||= results[0]?.status === 'fulfilled'
+          zoomStopped ||= results[1]?.status === 'fulfilled'
+          if (panStopped && zoomStopped) {
+            manualState = 'idle'
+            return
+          }
+        }
+        throw new Error(
+          'Camera Stop was not confirmed. Use the physical camera remote and check the picture before continuing.',
+        )
+      } finally {
+        stopping = undefined
+      }
+    })()
+    return stopping
+  }
+
   return {
     async getStatus(): Promise<Status['camera']> {
       const reachable = await checkConnection()
@@ -186,16 +237,73 @@ export function createPtzOpticsAdapter(
         preset: null,
         availablePresets: [...availablePresets],
         lastRequestedPreset,
+        manualEnabled: config.manualEnabled === true && !closed,
+        manualState,
       }
     },
     async selectPreset(preset) {
+      if (closed || manualState !== 'idle')
+        throw new Error('Stop the camera before recalling another shot')
       const number = presets[preset]
       if (!availablePresets.includes(preset) || number === undefined)
         throw new Error('This camera preset mapping has not been confirmed')
-      if (!(await checkConnection(true)))
-        throw new Error('The camera control API is unavailable')
-      await request(`/cgi-bin/ptzctrl.cgi?ptzcmd&poscall&${number}`)
-      lastRequestedPreset = preset
+      const currentGeneration = generation
+      const controller = new AbortController()
+      movement = controller
+      try {
+        if (!(await checkConnection(true)))
+          throw new Error('The camera control API is unavailable')
+        if (
+          controller.signal.aborted ||
+          currentGeneration !== generation ||
+          closed
+        )
+          throw new Error('Camera recall was cancelled by Stop')
+        await request(
+          `/cgi-bin/ptzctrl.cgi?ptzcmd&poscall&${number}`,
+          controller.signal,
+        )
+        lastRequestedPreset = preset
+      } finally {
+        if (movement === controller) movement = undefined
+      }
+    },
+    async nudge(action) {
+      if (!config.manualEnabled || closed || manualState !== 'idle')
+        throw new Error('Manual camera movement is not available')
+      const currentGeneration = ++generation
+      const controller = new AbortController()
+      movement = controller
+      manualState = 'nudging'
+      lastRequestedPreset = null
+      const deadline = setTimeout(() => controller.abort(), 4000)
+      try {
+        if (!(await checkConnection(true)))
+          throw new Error('Camera is unavailable')
+        if (controller.signal.aborted || currentGeneration !== generation)
+          throw new Error('Camera movement was cancelled')
+        const paths = {
+          left: 'left&1&1',
+          right: 'right&1&1',
+          up: 'up&1&1',
+          down: 'down&1&1',
+          'zoom-in': 'zoomin&1',
+          'zoom-out': 'zoomout&1',
+        } as const
+        await request(
+          `/cgi-bin/ptzctrl.cgi?ptzcmd&${paths[action]}`,
+          controller.signal,
+        )
+        await delay(400, undefined, { signal: controller.signal })
+      } finally {
+        clearTimeout(deadline)
+        if (currentGeneration === generation) await stop()
+      }
+    },
+    stop,
+    async close() {
+      closed = true
+      if (movement || manualState !== 'idle') await stop()
     },
   }
 }

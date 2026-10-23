@@ -6,6 +6,50 @@ settings, or start a YouTube broadcast for you.
 
 ## Every Restart: One Command, One Link
 
+### Double-Click Startup
+
+After initial setup, open OBS, then double-click
+[Start Kidane Mehret.command](Start%20Kidane%20Mehret.command) in the project
+folder in Finder. It opens Terminal, runs the same startup and health checks,
+and opens `http://localhost:5173` in your default browser once the dashboard,
+agent status, and API proxy respond correctly. Keep that Terminal window open.
+It never starts a YouTube broadcast or recording automatically.
+
+For easier access, use Finder's **Make Alias** on the launcher and move the
+alias to the Desktop. Keep the original launcher with the project files;
+copying just the launcher elsewhere will not include the app it needs.
+
+The launcher checks for an already-running app instead of restarting it. A
+second click opens the verified existing dashboard; if startup is still in
+progress, it directs you to the first Terminal window. Stale launcher locks
+are checked against their process before recovery; unrelated processes are
+not stopped. Stop an old project copy before launching an updated copy, since
+both use the same local ports.
+
+If startup fails, follow the first **Next step** in Terminal. The launcher
+waits for Return before closing a failed interactive session so the error
+does not disappear. If the browser cannot open automatically, the report
+provides the manual URL. OBS or preview warnings can remain visible in the
+health report even when the dashboard itself is ready to open.
+
+If macOS blocks a downloaded launcher, review its source and origin first,
+then use Finder's **Open** action or the system's approval flow for that file.
+Do not disable Gatekeeper or the firewall. If executable permission was lost
+while copying the project, run this once from its folder:
+
+```sh
+chmod +x "Start Kidane Mehret.command"
+```
+
+The launcher needs the project's Node/npm and installed dependencies from the
+initial setup; it is not an installer or a background login service. Closing
+its Terminal stops the dashboard/agent, not OBS's broadcast or recording.
+MediaMTX can remain running; stop it separately with `npm run mediamtx:stop`.
+Test Finder launch and any one-time macOS approval on the church Mac mini
+before relying on it during a service.
+
+### Terminal Startup
+
 After initial setup, open OBS and run this from the project folder:
 
 ```sh
@@ -370,12 +414,63 @@ After a timeout, verify the picture before retrying: a command may have
 reached the camera even if its acknowledgement was lost. Failed movement
 requests are not automatically retried (apart from the Digest 401 challenge).
 The app does not save or delete presets, scan preset IDs, or change video,
-tracking, network, YouTube, or recording settings. Directional pan/tilt/zoom,
-iPad camera ingestion, and iPad audio routing remain separate follow-up work.
+tracking, network, YouTube, or recording settings. Slow manual pan/tilt/zoom
+is opt-in separately below. iPad camera ingestion and audio routing still need
+to be configured and tested in OBS.
 
 Protocol references: [HTTP API getting started](https://docs.ptzoptics.com/dev/guides/http-api-getting-started),
 [preset commands and ranges](https://docs.ptzoptics.com/dev/http-api/movement/preset-commands-get-preset-command),
 and [device-information query](https://docs.ptzoptics.com/dev/http-api/query/get-device-config).
+
+### Optional: Slow Manual Pan, Tilt, and Zoom
+
+Manual adjustments use the same configured PTZOptics camera and HTTP Digest
+settings, but are disabled by default. At church, with a person watching the
+camera, turn auto-tracking off in the camera's own interface and verify the
+physical remote works. Then opt in locally:
+
+```dotenv
+PTZ_MANUAL_ENABLED=true
+```
+
+Restart the app. Under **Adjust main camera**, enable **Allow camera movement**
+and confirm. Direction arrows pan/tilt; magnifying-glass buttons zoom. Each tap
+sends one slow adjustment at fixed speed `1`. A normal nudge lasts about 400 ms
+after its movement acknowledgement, then the agent sends both pan/tilt Stop
+and zoom Stop. Holding a pointer or repeating a key does not request an
+unbounded continuous move. Speeds and durations cannot be supplied by browser
+requests. Preset IDs do not need to be guessed or changed to use manual nudges.
+
+The central red **Stop** button disarms local movement and attempts both Stop
+commands. It remains available while another command is busy or the app cannot
+read status. Stop bypasses the command lock and OBS status queries. A camera
+request waiting on preflight is cancelled if Stop arrives before it starts.
+The browser uses a separate Stop acknowledgement rather than waiting for a full
+OBS status response. Leaving the page disarms manual movement and attempts Stop.
+
+The agent also attempts Stop on nudge completion, acknowledgement failure,
+client disconnection during the command, and graceful shutdown during movement.
+Only idempotent Stop requests are retried, at most twice; movement is not
+automatically replayed. A failed Stop blocks further nudges and preset recalls
+until Stop is acknowledged again. The health report flags this but never sends
+any movement or Stop command itself.
+
+These are best-effort network controls, not a hardware emergency-stop system.
+Movement and Stop requests have finite timeouts. Network latency can extend a
+step, and a lost camera network connection, an agent crash, abrupt power loss,
+or auto-tracking can prevent a software Stop from taking effect. If movement
+continues or Stop is not confirmed, use the physical remote immediately and
+verify the picture before trying again. Do not test failures during a service.
+The app does not change auto-tracking settings, camera networking, presets,
+OBS source selection, stream destination, recording, or audio routing when
+adjusting the main camera. The selected iPad scene does not change which
+physical camera these controls target.
+
+At home, leave physical camera configuration unset and use practice mode or
+the isolated demo. Real movement, speed, direction, firmware compatibility,
+and Stop behavior still require a supervised church test. Set
+`PTZ_MANUAL_ENABLED=false` to disable nudges while retaining configured preset
+recall; Stop remains attemptable for the configured camera.
 
 ## 4. Configure Local Environment
 

@@ -6,6 +6,7 @@ import {
   type CameraSource,
   type BroadcastState,
   type Preset,
+  type PtzAction,
   type RuntimeMode,
   type Status,
 } from '@kidane/shared'
@@ -34,6 +35,9 @@ function collectNumbers(value: unknown): number[] {
 export interface CameraAdapter {
   getStatus(): Promise<Status['camera']>
   selectPreset(preset: Preset): Promise<void>
+  nudge(action: Exclude<PtzAction, 'stop'>): Promise<void>
+  stop(): Promise<void>
+  close(): Promise<void>
 }
 
 export interface AudioAdapter {
@@ -59,18 +63,28 @@ export interface Adapters {
 }
 
 export function createMockAdapters(): Adapters {
-  let preset: Preset = 'Wide'
+  let preset: Preset | null = 'Wide'
   let state: BroadcastState = 'idle'
   let activeSource: CameraSource = 'main'
   return {
     mode: 'simulated',
     camera: {
       async getStatus() {
-        return { connection: 'connected', preset }
+        return {
+          connection: 'connected',
+          preset,
+          manualEnabled: true,
+          manualState: 'idle',
+        }
       },
       async selectPreset(value) {
         preset = value
       },
+      async nudge() {
+        preset = null
+      },
+      async stop() {},
+      async close() {},
     },
     audio: {
       async getStatus() {
@@ -276,6 +290,13 @@ export function createObsAdapters(
       async selectPreset() {
         throw new Error('Physical camera control is not configured')
       },
+      async nudge() {
+        throw new Error('Physical camera control is not configured')
+      },
+      async stop() {
+        throw new Error('Physical camera control is not configured')
+      },
+      async close() {},
     },
     obs: {
       async getStatus() {

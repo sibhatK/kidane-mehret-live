@@ -10,11 +10,28 @@ fail() {
 }
 
 case "${1:-}" in
-  ''|--check) ;;
-  *) fail "Usage: bash scripts/start-mac.sh [--check]" ;;
+  ''|--check|--open-browser|--open-existing) ;;
+  *) fail "Usage: bash scripts/start-mac.sh [--check|--open-browser|--open-existing]" ;;
 esac
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "This startup command supports macOS only."
+
+load_node() {
+  if ! command -v npm >/dev/null 2>&1; then
+    export PATH="$HOME/.local/kidane-node/bin:$PATH"
+  fi
+  if ! command -v npm >/dev/null 2>&1; then
+    export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+    [[ ! -s "$NVM_DIR/nvm.sh" ]] || . "$NVM_DIR/nvm.sh"
+  fi
+  command -v npm >/dev/null 2>&1 || fail "Node/npm is missing. Complete the initial setup first."
+}
+
+if [[ "${1:-}" == "--open-existing" ]]; then
+  cd "$ROOT_DIR"
+  load_node
+  exec node --import tsx scripts/health-check.ts --open-dashboard
+fi
 
 local_name="$(scutil --get LocalHostName | tr '[:upper:]' '[:lower:]')"
 [[ "$local_name" =~ ^[a-z0-9][a-z0-9-]*$ ]] || fail "Could not read a valid Mac LocalHostName."
@@ -48,24 +65,26 @@ printf 'Wi-Fi/LAN IP: %s\nSaved iPad link: http://%s.local:5173\nPreview: %s\n' 
   "$lan_ip" "$local_name" "$VITE_MEDIAMTX_WEBRTC_URL"
 [[ "${1:-}" != "--check" ]] || exit 0
 
-if ! command -v npm >/dev/null 2>&1; then
-  export PATH="$HOME/.local/kidane-node/bin:$PATH"
-fi
-if ! command -v npm >/dev/null 2>&1; then
-  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-  [[ ! -s "$NVM_DIR/nvm.sh" ]] || . "$NVM_DIR/nvm.sh"
-fi
-command -v npm >/dev/null 2>&1 || fail "Node/npm is missing. Complete the initial setup first."
+load_node
 export PATH="$HOME/.docker/bin:$HOME/Applications/Docker.app/Contents/Resources/bin:/Applications/Docker.app/Contents/Resources/bin:$PATH"
 
 command -v lsof >/dev/null 2>&1 || fail "The port-check tool lsof is unavailable." \
   "Open a standard macOS Terminal and retry. Do not skip the port checks or stop unknown processes."
 for port in 5173 3001; do
   if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+    if [[ "${1:-}" == "--open-browser" ]]; then
+      cd "$ROOT_DIR"
+      printf 'Checking the app already using the local ports. No services will be restarted.\n'
+      exec node --import tsx scripts/health-check.ts --open-dashboard
+    fi
     fail "Port $port is already in use. No preview services were restarted." \
       "In the terminal running the existing app, press Control+C. Then run npm run live again. Do not close OBS."
   fi
 done
+
+if [[ "${1:-}" == "--open-browser" ]]; then
+  export KIDANE_OPEN_BROWSER=1
+fi
 
 backend="${MEDIAMTX_BACKEND:-auto}"
 if [[ "$backend" == "auto" ]]; then

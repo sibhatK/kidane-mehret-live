@@ -184,6 +184,23 @@ export async function readinessChecks(options: Options = {}): Promise<Check[]> {
         ? 'Operator-confirmed mappings are configured. No preset was recalled by this check.'
         : 'No confirmed preset mappings. Verify the saved numbers at church before configuring them; do not guess.',
     })
+    if (agent.value.camera.manualState === 'stop-unconfirmed') {
+      result(
+        'Camera Stop acknowledgement',
+        false,
+        '',
+        'Camera Stop could not be confirmed. Movement is blocked.',
+        'Use the physical camera remote to stop the camera first. Restore camera connectivity, then press Stop camera again and verify the picture. Do not retry movement until Stop succeeds.',
+      )
+    }
+    if (agent.value.camera.manualEnabled) {
+      checks.push({
+        name: 'Manual camera movement',
+        state: 'NOT VERIFIED',
+        detail:
+          'Manual controls are configured, but this health check never moves or stops the camera. Verify slow nudges, auto-stop, and the physical remote with an operator at church.',
+      })
+    }
   }
 
   if (obsConnected) {
@@ -314,6 +331,51 @@ export function printReadiness(
   }
 }
 
+export async function openDashboard(
+  checks: Check[],
+  opener: (url: string) => Promise<void> = (url) =>
+    new Promise((resolve, reject) => {
+      execFile('open', [url], { timeout: 5000 }, (error) =>
+        error ? reject(error) : resolve(),
+      )
+    }),
+  write: (line: string) => void = console.log,
+): Promise<boolean> {
+  const required = [
+    'Dashboard HTTP (5173)',
+    'Agent status (3001)',
+    'Dashboard API proxy',
+  ]
+  if (
+    !required.every((name) =>
+      checks.some((check) => check.name === name && check.state === 'PASS'),
+    )
+  ) {
+    write(
+      '[FAIL] The dashboard is not ready to open. No services were restarted.',
+    )
+    write(
+      'Next step: check the first startup window and follow its first error. If it is still starting, wait for its readiness report.',
+    )
+    return false
+  }
+  try {
+    await opener('http://localhost:5173')
+    write(
+      'Dashboard opened. Keep the original startup Terminal window open. No OBS output was changed.',
+    )
+    return true
+  } catch {
+    write(
+      '[WARNING] The app is available, but the browser could not be opened automatically.',
+    )
+    write(
+      'Next step: open http://localhost:5173 in your browser. Keep the startup Terminal window open.',
+    )
+    return false
+  }
+}
+
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -321,7 +383,11 @@ if (
   try {
     const checks = await readinessChecks()
     printReadiness(checks)
-    process.exitCode = checks.some((check) => check.state === 'FAIL') ? 1 : 0
+    if (process.argv[2] === '--open-dashboard') {
+      process.exitCode = (await openDashboard(checks)) ? 0 : 1
+    } else {
+      process.exitCode = checks.some((check) => check.state === 'FAIL') ? 1 : 0
+    }
   } catch {
     console.error(
       '[FAIL] Health checks could not complete. Next step: run npm run live from the project folder, then retry npm run health. Do not share credentials.',

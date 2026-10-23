@@ -4,6 +4,17 @@ export const presetSchema = z.enum(['Wide', 'Altar', 'Reader'])
 export type Preset = z.infer<typeof presetSchema>
 export const cameraSourceSchema = z.enum(['main', 'congregation'])
 export type CameraSource = z.infer<typeof cameraSourceSchema>
+export const ptzActionSchema = z.enum([
+  'left',
+  'right',
+  'up',
+  'down',
+  'zoom-in',
+  'zoom-out',
+  'stop',
+])
+export type PtzAction = z.infer<typeof ptzActionSchema>
+export const cameraStopSchema = z.object({ acknowledged: z.literal(true) })
 export const sceneStatusSchema = z.object({
   configured: z.array(cameraSourceSchema),
   available: z.array(cameraSourceSchema),
@@ -40,6 +51,8 @@ export const statusSchema = z.object({
     control: z.literal('ptzoptics').optional(),
     availablePresets: z.array(presetSchema).optional(),
     lastRequestedPreset: presetSchema.nullable().optional(),
+    manualEnabled: z.boolean().optional(),
+    manualState: z.enum(['idle', 'nudging', 'stop-unconfirmed']).optional(),
   }),
   audio: z.object({
     connection: connectionSchema,
@@ -59,6 +72,13 @@ export const statusSchema = z.object({
 export type Status = z.infer<typeof statusSchema>
 
 export const commandSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('ptz'),
+      action: ptzActionSchema,
+      confirmed: z.boolean().optional(),
+    })
+    .strict(),
   z
     .object({
       type: z.literal('scene'),
@@ -94,6 +114,21 @@ export const allowedActions: Readonly<
 }
 
 export function canExecute(status: Status, command: Command): boolean {
+  if (command.type === 'ptz') {
+    if (command.action === 'stop')
+      return status.mode === 'obs'
+        ? status.camera.control === 'ptzoptics'
+        : status.camera.control !== 'ptzoptics'
+    return (
+      status.camera.manualEnabled === true &&
+      status.camera.connection === 'connected' &&
+      (status.camera.manualState === undefined ||
+        status.camera.manualState === 'idle') &&
+      (status.mode === 'obs'
+        ? status.camera.control === 'ptzoptics' && command.confirmed === true
+        : status.camera.control !== 'ptzoptics')
+    )
+  }
   if (command.type === 'scene') {
     return (
       status.obs.connection === 'connected' &&
@@ -109,6 +144,8 @@ export function canExecute(status: Status, command: Command): boolean {
         status.mode === 'obs' &&
         status.camera.connection === 'connected' &&
         status.camera.availablePresets?.includes(command.preset) === true &&
+        (status.camera.manualState === undefined ||
+          status.camera.manualState === 'idle') &&
         command.confirmed === true
       )
     }

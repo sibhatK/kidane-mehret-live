@@ -1,5 +1,6 @@
 import {
   audioMetersSchema,
+  cameraStopSchema,
   commandSchema,
   statusSchema,
   type AudioMeter,
@@ -17,7 +18,9 @@ export async function requestStatus(
   signal?.addEventListener('abort', abort, { once: true })
   const timeout = setTimeout(
     abort,
-    (command?.type === 'preset' || command?.type === 'scene') &&
+    (command?.type === 'preset' ||
+      command?.type === 'scene' ||
+      command?.type === 'ptz') &&
       command.confirmed
       ? 15000
       : 5000,
@@ -52,6 +55,25 @@ export async function requestObsAudioMeters(): Promise<AudioMeter[]> {
     })
     if (!response.ok) throw new Error('OBS audio meters are unavailable')
     return audioMetersSchema.parse(await response.json())
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+export async function requestCameraStop(): Promise<void> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10000)
+  try {
+    const response = await fetch('/api/commands', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'ptz', action: 'stop' }),
+      signal: controller.signal,
+      cache: 'no-store',
+      keepalive: true,
+    })
+    if (!response.ok) throw new Error('Camera Stop unavailable')
+    cameraStopSchema.parse(await response.json())
   } finally {
     clearTimeout(timeout)
   }

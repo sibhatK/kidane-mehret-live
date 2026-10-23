@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
-import { readinessChecks, printReadiness } from './health-check.js'
+import { describe, expect, it, vi } from 'vitest'
+import {
+  readinessChecks,
+  printReadiness,
+  openDashboard,
+} from './health-check.js'
 
 function status(mode = 'obs', connection = 'connected') {
   return {
@@ -53,6 +57,96 @@ function fixture(overrides: Record<string, unknown> = {}) {
 }
 
 describe('read-only readiness report', () => {
+  it('reports unconfirmed camera Stop without sending Stop or movement as a health probe', async () => {
+    const body = {
+      ...status(),
+      camera: {
+        connection: 'disconnected',
+        control: 'ptzoptics',
+        preset: null,
+        manualEnabled: true,
+        manualState: 'stop-unconfirmed',
+      },
+    }
+    const { options, calls } = fixture({
+      'http://127.0.0.1:3001/api/status': body,
+      'http://127.0.0.1:5173/api/status': body,
+    })
+    const checks = await readinessChecks(options)
+    expect(
+      checks.find((check) => check.name === 'Camera Stop acknowledgement')
+        ?.state,
+    ).toBe('FAIL')
+    expect(
+      checks.find((check) => check.name === 'Manual camera movement')?.state,
+    ).toBe('NOT VERIFIED')
+    expect(
+      calls.every(
+        (call) => call.method === 'GET' && !call.url.includes('/commands'),
+      ),
+    ).toBe(true)
+  })
+
+  it('opens the local dashboard only after the page, agent, and proxy have passed', async () => {
+    const { options } = fixture()
+    const opener = vi.fn(async () => undefined)
+    const messages: string[] = []
+    expect(
+      await openDashboard(await readinessChecks(options), opener, (line) =>
+        messages.push(line),
+      ),
+    ).toBe(true)
+    expect(opener).toHaveBeenCalledExactlyOnceWith('http://localhost:5173')
+    expect(messages.join('\n')).toContain('No OBS output was changed')
+  })
+
+  it('opens a working dashboard for recovery even if OBS is disconnected', async () => {
+    const body = status('obs', 'disconnected')
+    const { options } = fixture({
+      'http://127.0.0.1:3001/api/status': body,
+      'http://127.0.0.1:5173/api/status': body,
+    })
+    const checks = await readinessChecks(options)
+    expect(checks.some((check) => check.state === 'FAIL')).toBe(true)
+    const opener = vi.fn(async () => undefined)
+    expect(await openDashboard(checks, opener, () => undefined)).toBe(true)
+    expect(opener).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not open another app or a half-started dashboard based on a port alone', async () => {
+    const { options } = fixture({
+      'http://127.0.0.1:3001/api/status': { different: 'application' },
+    })
+    const opener = vi.fn(async () => undefined)
+    const messages: string[] = []
+    expect(
+      await openDashboard(await readinessChecks(options), opener, (line) =>
+        messages.push(line),
+      ),
+    ).toBe(false)
+    expect(opener).not.toHaveBeenCalled()
+    expect(messages.join('\n')).toContain(
+      'Next step: check the first startup window',
+    )
+  })
+
+  it('provides a manual URL when macOS cannot open the browser, without leaking errors', async () => {
+    const { options } = fixture()
+    const opener = vi.fn(async () => {
+      throw new Error('private-browser-error')
+    })
+    const messages: string[] = []
+    expect(
+      await openDashboard(await readinessChecks(options), opener, (line) =>
+        messages.push(line),
+      ),
+    ).toBe(false)
+    expect(messages.join('\n')).toContain(
+      'open http://localhost:5173 in your browser',
+    )
+    expect(messages.join('\n')).not.toContain('private-browser-error')
+  })
+
   it.each([true, false])(
     'checks configured picture-source availability without switching scenes: %j',
     async (available) => {

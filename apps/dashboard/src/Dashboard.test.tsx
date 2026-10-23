@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AudioMeter, Status } from '@kidane/shared'
 import { CameraPreview } from './CameraPreview'
 import { Dashboard } from './Dashboard'
-import { requestObsAudioMeters, requestStatus } from './api'
+import { ManualCameraControls } from './ManualCameraControls'
+import { requestCameraStop, requestObsAudioMeters, requestStatus } from './api'
 
 const status: Status = {
   mode: 'simulated',
@@ -76,6 +77,70 @@ describe('MediaMTX preview', () => {
 })
 
 describe('dashboard safety and controls', () => {
+  it('starts manual adjustment locked with accessible icon labels and a usable emergency Stop', () => {
+    const current: Status = {
+      ...obsStatus,
+      camera: {
+        connection: 'connected',
+        preset: null,
+        control: 'ptzoptics',
+        manualEnabled: true,
+        manualState: 'idle',
+      },
+    }
+    for (const state of [
+      { status: current, busy: false },
+      { status: current, busy: true },
+      { status: null, busy: false },
+    ]) {
+      const html = renderToStaticMarkup(
+        createElement(ManualCameraControls, {
+          ...state,
+          notice: null,
+          onCommand: vi.fn(),
+        }),
+      )
+      expect(html).toContain('Allow camera movement')
+      expect(html).not.toContain('checked=""')
+      for (const label of [
+        'Pan left',
+        'Pan right',
+        'Tilt up',
+        'Tilt down',
+        'Zoom in',
+        'Zoom out',
+      ])
+        expect(html).toMatch(
+          new RegExp(`aria-label="${label}"[^>]*disabled=""`),
+        )
+      expect(html).toMatch(/<button[^>]*aria-label="Stop camera"[^>]*>/)
+      expect(html).not.toMatch(
+        /<button[^>]*aria-label="Stop camera"[^>]*disabled/,
+      )
+    }
+  })
+
+  it('shows failed Stop recovery as a danger state rather than movement ready', () => {
+    const html = renderToStaticMarkup(
+      createElement(ManualCameraControls, {
+        status: {
+          ...obsStatus,
+          camera: {
+            connection: 'disconnected',
+            preset: null,
+            control: 'ptzoptics',
+            manualEnabled: true,
+            manualState: 'stop-unconfirmed',
+          },
+        },
+        busy: false,
+        notice: null,
+        onCommand: vi.fn(),
+      }),
+    )
+    expect(html).toContain('Stop not confirmed. Use the physical camera remote')
+    expect(html).toContain('data-tone="danger"')
+  })
   it('shows the active program source, enables only available scenes, and keeps source controls before the picture', () => {
     const html = render({
       ...obsStatus,
@@ -562,7 +627,7 @@ describe('dashboard safety and controls', () => {
       render(null, false, 'Agent unavailable'),
       render(status, true),
     ]) {
-      expect(html.match(/disabled=""/g)).toHaveLength(6)
+      expect(html.match(/disabled=""/g)).toHaveLength(13)
     }
     expect(render(null, false, 'Agent unavailable')).toContain('role="alert"')
     expect(render(null)).toContain('Broadcast status unavailable')
@@ -575,6 +640,34 @@ describe('dashboard safety and controls', () => {
 })
 
 describe('validated API client', () => {
+  it.each([{}, { acknowledged: false }])(
+    'does not treat an invalid Stop reply as success: %j',
+    async (body) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify(body)))
+      vi.stubGlobal('fetch', fetch)
+      await expect(requestCameraStop()).rejects.toThrow()
+      expect(fetch).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('sends a priority Stop once and validates its acknowledgement without waiting for full status', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ acknowledged: true })))
+    vi.stubGlobal('fetch', fetch)
+    await expect(requestCameraStop()).resolves.toBeUndefined()
+    expect(fetch).toHaveBeenCalledExactlyOnceWith(
+      '/api/commands',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ type: 'ptz', action: 'stop' }),
+        keepalive: true,
+      }),
+    )
+  })
+
   it.each([
     { type: 'preset' as const, preset: 'Wide' as const, confirmed: true },
     {

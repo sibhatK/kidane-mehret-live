@@ -19,6 +19,73 @@ const status: Status = {
 }
 
 describe('shared safety contracts', () => {
+  it('requires opt-in, connection, and confirmation for nudges but permits emergency stop while disconnected', () => {
+    const current: Status = {
+      ...status,
+      mode: 'obs',
+      camera: {
+        connection: 'connected',
+        control: 'ptzoptics',
+        preset: null,
+        manualEnabled: true,
+        manualState: 'idle',
+      },
+    }
+    const move = { type: 'ptz', action: 'left', confirmed: true } as const
+    expect(commandSchema.parse(move)).toEqual(move)
+    expect(canExecute(current, move)).toBe(true)
+    expect(canExecute(current, { type: 'ptz', action: 'left' })).toBe(false)
+    expect(
+      canExecute(
+        { ...current, camera: { ...current.camera, manualEnabled: false } },
+        move,
+      ),
+    ).toBe(false)
+    expect(
+      canExecute(
+        {
+          ...current,
+          camera: { ...current.camera, connection: 'disconnected' },
+        },
+        move,
+      ),
+    ).toBe(false)
+    for (const manualState of ['nudging', 'stop-unconfirmed'] as const)
+      expect(
+        canExecute(
+          { ...current, camera: { ...current.camera, manualState } },
+          move,
+        ),
+      ).toBe(false)
+    expect(
+      canExecute(
+        {
+          ...current,
+          camera: {
+            ...current.camera,
+            connection: 'disconnected',
+            manualEnabled: false,
+            manualState: 'stop-unconfirmed',
+          },
+        },
+        { type: 'ptz', action: 'stop' },
+      ),
+    ).toBe(true)
+    expect(
+      canExecute(
+        { ...current, camera: { connection: 'disconnected', preset: null } },
+        { type: 'ptz', action: 'stop' },
+      ),
+    ).toBe(false)
+    expect(commandSchema.safeParse({ ...move, speed: 24 }).success).toBe(false)
+    expect(
+      commandSchema.safeParse({ ...move, durationMs: 60000 }).success,
+    ).toBe(false)
+    expect(
+      commandSchema.safeParse({ type: 'ptz', action: 'home' }).success,
+    ).toBe(false)
+  })
+
   it('gates source switching on configured, available OBS scenes and explicit real confirmation', () => {
     const current: Status = {
       ...status,

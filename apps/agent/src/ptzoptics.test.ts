@@ -16,9 +16,229 @@ const info = () =>
     JSON.stringify({ status: 200, data: { devname: 'ptzopticsmove4k' } }),
   )
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.useRealTimers()
+  vi.unstubAllGlobals()
+})
 
 describe('PTZOptics preset recall', () => {
+  it.each([
+    ['left', 'left&1&1'],
+    ['right', 'right&1&1'],
+    ['up', 'up&1&1'],
+    ['down', 'down&1&1'],
+    ['zoom-in', 'zoomin&1'],
+    ['zoom-out', 'zoomout&1'],
+  ] as const)(
+    'sends one slow %s nudge and automatically stops both motion types',
+    async (action, path) => {
+      const send = vi.fn(async (url: string) =>
+        url.includes('get_device_conf') ? info() : new Response('OK'),
+      )
+      const adapter = createPtzOpticsAdapter(
+        { ...config, manualEnabled: true },
+        send,
+      )
+      await adapter.nudge(action)
+      expect(send.mock.calls.map((call) => call[0])).toEqual([
+        `${config.origin}/cgi-bin/param.cgi?get_device_conf`,
+        `${config.origin}/cgi-bin/ptzctrl.cgi?ptzcmd&${path}`,
+        `${config.origin}/cgi-bin/ptzctrl.cgi?ptzcmd&ptzstop&0&0`,
+        `${config.origin}/cgi-bin/ptzctrl.cgi?ptzcmd&zoomstop`,
+      ])
+      expect(await adapter.getStatus()).toMatchObject({
+        manualEnabled: true,
+        manualState: 'idle',
+        preset: null,
+      })
+    },
+  )
+
+  it('keeps manual movement opt-in but still permits Stop without a connectivity inquiry', async () => {
+    const send = vi.fn(async () => new Response('OK'))
+    const adapter = createPtzOpticsAdapter(config, send)
+    await expect(adapter.nudge('left')).rejects.toThrow('not available')
+    expect(send).not.toHaveBeenCalled()
+    await adapter.stop()
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(
+      send.mock.calls.every(
+        (call) => !String(call[0]).includes('get_device_conf'),
+      ),
+    ).toBe(true)
+    expect(cameraConfig({ PTZ_CAMERA_URL: config.origin })?.manualEnabled).toBe(
+      false,
+    )
+    expect(
+      cameraConfig({
+        PTZ_CAMERA_URL: config.origin,
+        PTZ_MANUAL_ENABLED: 'true',
+      })?.manualEnabled,
+    ).toBe(true)
+    expect(() =>
+      cameraConfig({
+        PTZ_CAMERA_URL: config.origin,
+        PTZ_MANUAL_ENABLED: 'yes',
+      }),
+    ).toThrow()
+  })
+
+  it('cancels a nudge waiting on inquiry when emergency Stop arrives', async () => {
+    let entered!: () => void
+    let release!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const send = vi.fn(async (url: string) => {
+      if (url.includes('get_device_conf')) {
+        entered()
+        await gate
+        return info()
+      }
+      return new Response('OK')
+    })
+    const adapter = createPtzOpticsAdapter(
+      { ...config, manualEnabled: true },
+      send,
+    )
+    const moving = adapter.nudge('left')
+    const rejected = expect(moving).rejects.toThrow('cancelled')
+    await started
+    await adapter.stop()
+    release()
+    await rejected
+    expect(send.mock.calls.some((call) => call[0].includes('left&'))).toBe(
+      false,
+    )
+  })
+
+  it('preempts an in-flight movement, sends Stop, and never retries the move', async () => {
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const send = vi.fn(async (url: string, options: RequestInit) => {
+      if (url.includes('get_device_conf')) return info()
+      if (url.includes('zoomin')) {
+        entered()
+        return new Promise<Response>((_resolve, reject) =>
+          options.signal?.addEventListener(
+            'abort',
+            () => reject(new Error('aborted')),
+            { once: true },
+          ),
+        )
+      }
+      return new Response('OK')
+    })
+    const adapter = createPtzOpticsAdapter(
+      { ...config, manualEnabled: true },
+      send,
+    )
+    const moving = adapter.nudge('zoom-in')
+    const rejected = expect(moving).rejects.toThrow('could not be confirmed')
+    await started
+    await adapter.stop()
+    await rejected
+    expect(
+      send.mock.calls.filter((call) => call[0].includes('zoomin')),
+    ).toHaveLength(1)
+    expect(send.mock.calls.some((call) => call[0].includes('zoomstop'))).toBe(
+      true,
+    )
+    expect((await adapter.getStatus()).manualState).toBe('idle')
+  })
+
+  it('attempts automatic Stop when movement acknowledgement times out', async () => {
+    const send = vi.fn(async (url: string, options: RequestInit) => {
+      if (url.includes('get_device_conf')) return info()
+      if (url.includes('left&'))
+        return new Promise<Response>((_resolve, reject) =>
+          options.signal?.addEventListener(
+            'abort',
+            () => reject(new Error('timeout')),
+            { once: true },
+          ),
+        )
+      return new Response('OK')
+    })
+    const adapter = createPtzOpticsAdapter(
+      { ...config, manualEnabled: true },
+      send,
+      20,
+    )
+    await expect(adapter.nudge('left')).rejects.toThrow(
+      'could not be confirmed',
+    )
+    expect(
+      send.mock.calls.filter((call) => call[0].includes('left&')),
+    ).toHaveLength(1)
+    expect(
+      send.mock.calls.filter((call) => call[0].includes('stop')),
+    ).toHaveLength(2)
+  })
+
+  it('blocks new movement after unconfirmed Stop and recovers only after Stop succeeds', async () => {
+    let failStop = true
+    const send = vi.fn(async (url: string) => {
+      if (url.includes('get_device_conf')) return info()
+      if (url.includes('stop') && failStop) throw new Error('camera offline')
+      return new Response('OK')
+    })
+    const adapter = createPtzOpticsAdapter(
+      { ...config, manualEnabled: true },
+      send,
+    )
+    await expect(adapter.nudge('up')).rejects.toThrow('Stop was not confirmed')
+    expect((await adapter.getStatus()).manualState).toBe('stop-unconfirmed')
+    const count = send.mock.calls.length
+    await expect(adapter.nudge('right')).rejects.toThrow('not available')
+    await expect(adapter.selectPreset('Wide')).rejects.toThrow(
+      'Stop the camera',
+    )
+    expect(send).toHaveBeenCalledTimes(count)
+    failStop = false
+    await adapter.stop()
+    expect((await adapter.getStatus()).manualState).toBe('idle')
+  })
+
+  it('attempts Stop on shutdown during an active nudge and refuses later movement', async () => {
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const send = vi.fn(async (url: string, options: RequestInit) => {
+      if (url.includes('get_device_conf')) return info()
+      if (url.includes('down&')) {
+        entered()
+        return new Promise<Response>((_resolve, reject) =>
+          options.signal?.addEventListener(
+            'abort',
+            () => reject(new Error('shutdown')),
+            { once: true },
+          ),
+        )
+      }
+      return new Response('OK')
+    })
+    const adapter = createPtzOpticsAdapter(
+      { ...config, manualEnabled: true },
+      send,
+    )
+    const moving = adapter.nudge('down')
+    const rejected = expect(moving).rejects.toThrow()
+    await started
+    await adapter.close()
+    await rejected
+    await expect(adapter.nudge('down')).rejects.toThrow('not available')
+    expect(send.mock.calls.some((call) => call[0].includes('ptzstop'))).toBe(
+      true,
+    )
+  })
+
   it.each(['SHA-256', 'MD5'] as const)(
     'handles a %s Digest challenge without exposing camera credentials',
     async (algorithm) => {
@@ -100,6 +320,8 @@ describe('PTZOptics preset recall', () => {
       preset: null,
       availablePresets: ['Wide'],
       lastRequestedPreset: null,
+      manualEnabled: false,
+      manualState: 'idle',
     })
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0][0]).toBe(
