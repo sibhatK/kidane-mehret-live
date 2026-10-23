@@ -81,6 +81,12 @@ trusted LAN interface, explicitly override the detected address with
 `MEDIAMTX_LAN_IP=<current IPv4 address> npm run live`. You can select a runtime
 with `MEDIAMTX_BACKEND=native npm run live` or `MEDIAMTX_BACKEND=docker npm run live`.
 
+Automatic runtime selection keeps native MediaMTX only when its PID belongs to
+a live process running the expected executable. A stale, malformed, or reused
+PID file does not force native mode. Otherwise startup uses a ready Docker
+engine, falling back to native when Docker is unavailable. The process check is
+read-only and does not stop unrelated processes.
+
 ## One-Command Setup
 
 On a new Mac mini, review the bootstrap script before running it. It uses Docker
@@ -103,7 +109,8 @@ bash /tmp/kidane-bootstrap-mac.sh
 It installs/selects the project Node version with nvm, clones or fast-forwards
 the clean project checkout, prompts for the Mac's Wi-Fi IP, creates ignored
 local environment files, runs `npm ci`, lint, tests and build, starts MediaMTX,
-and launches the dashboard and agent. It never starts or stops an OBS/YouTube
+and hands off to the same `npm run live` startup and readiness report described
+above. It never starts or stops an OBS/YouTube
 broadcast. If OBS settings are entered, password input is hidden and stored
 only in ignored `.env`. It refuses to overwrite a checkout containing local
 changes. The manual steps below explain each part and are the fallback if the

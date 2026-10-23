@@ -69,7 +69,7 @@ done
 
 backend="${MEDIAMTX_BACKEND:-auto}"
 if [[ "$backend" == "auto" ]]; then
-  if [[ -f "$HOME/.local/state/kidane-mehret-live/mediamtx.pid" ]]; then
+  if bash "$ROOT_DIR/scripts/mediamtx-native.sh" status; then
     backend="native"
   elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
     backend="docker"

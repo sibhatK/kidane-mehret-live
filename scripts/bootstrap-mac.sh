@@ -276,14 +276,13 @@ npm ci
 npm run lint
 npm test
 npm run build
-MEDIAMTX_BACKEND="$mediamtx_backend" npm run mediamtx:start
 
 cat <<EOF
 
-Setup is complete. MediaMTX is running on the trusted LAN.
+Setup is complete. Starting local services and read-only readiness checks.
 Install/configure the OBS Multi-RTMP plugin separately, then add a secondary
 WebRTC (WHIP) output to http://127.0.0.1:8889/live/whip. Keep the existing
 YouTube output unchanged. The app will now start; it will not start a broadcast.
 EOF
 
-exec npm run dev
+exec env MEDIAMTX_BACKEND="$mediamtx_backend" MEDIAMTX_LAN_IP="$lan_ip" npm run live

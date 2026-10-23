@@ -30,10 +30,10 @@ process_is_running() {
   [[ -r "$PID_FILE" ]] || return 1
   local pid command
   pid="$(<"$PID_FILE")"
-  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  [[ "$pid" =~ ^[1-9][0-9]*$ ]] || return 1
   kill -0 "$pid" 2>/dev/null || return 1
   command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
-  [[ "$command" == *"$BINARY"* ]]
+  [[ "$command" == "$BINARY" || "$command" == "$BINARY "* ]]
 }
 
 install_binary() {
@@ -76,6 +76,9 @@ install_binary() {
 }
 
 case "${1:-start}" in
+  status)
+    process_is_running
+    ;;
   start)
     [[ "$(uname -s)" == "Darwin" ]] || fail "The native runner supports macOS only."
     lan_ip="$(load_lan_ip)"
@@ -115,5 +118,5 @@ case "${1:-start}" in
     [[ -f "$LOG_FILE" ]] || fail "No native MediaMTX log exists yet."
     tail -f "$LOG_FILE"
     ;;
-  *) fail "Usage: $0 {start|stop|logs}" ;;
+  *) fail "Usage: $0 {start|stop|status|logs}" ;;
 esac

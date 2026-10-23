@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import process from 'node:process'
 
 describe('Mac live startup', () => {
   let directory: string
@@ -31,6 +32,10 @@ describe('Mac live startup', () => {
       new URL('./start-mac.sh', import.meta.url),
       join(directory, 'scripts/start-mac.sh'),
     )
+    copyFileSync(
+      new URL('./mediamtx-native.sh', import.meta.url),
+      join(directory, 'scripts/mediamtx-native.sh'),
+    )
     writeFileSync(join(directory, '.env'), 'MEDIAMTX_LAN_IP=192.168.1.231\n')
     writeFileSync(logFile, '')
     command('uname', 'echo Darwin')
@@ -41,6 +46,10 @@ describe('Mac live startup', () => {
       'test "$2" = en7 || exit 1; printf "%s\\n" "${MOCK_IP-192.168.1.206}"',
     )
     command('docker', 'exit "${DOCKER_EXIT:-1}"')
+    command(
+      'ps',
+      'printf "%s\\n" "${MOCK_PROCESS_COMMAND:-/usr/bin/unrelated}"',
+    )
     command(
       'lsof',
       'case "$*" in *":${BUSY_PORT:-none}"*) exit 0;; *) exit 1;; esac',
@@ -62,10 +71,14 @@ describe('Mac live startup', () => {
 
   afterEach(() => rmSync(directory, { recursive: true, force: true }))
 
-  function run(args: string[] = [], overrides: Record<string, string> = {}) {
+  function run(
+    args: string[] = [],
+    overrides: Record<string, string> = {},
+    script = 'start-mac.sh',
+  ) {
     return spawnSync(
       '/bin/bash',
-      [join(directory, 'scripts/start-mac.sh'), ...args],
+      [join(directory, 'scripts', script), ...args],
       {
         encoding: 'utf8',
         env: {
@@ -85,6 +98,29 @@ describe('Mac live startup', () => {
     expect(result.stdout).toContain('Wi-Fi/LAN IP: 192.168.1.206')
     expect(result.stdout).toContain('http://mac-mini.local:5173')
     expect(readFileSync(logFile, 'utf8')).toBe('')
+  })
+
+  it('hands bootstrap completion to live startup with the selected runtime and IP', () => {
+    const source = readFileSync(
+      new URL('./bootstrap-mac.sh', import.meta.url),
+      'utf8',
+    )
+    const handoff = source.slice(source.lastIndexOf('\nnpm ci\n'))
+    const result = spawnSync('/bin/bash', ['-c', handoff], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${join(directory, 'bin')}:/usr/bin:/bin`,
+        CALL_LOG: logFile,
+        mediamtx_backend: 'native',
+        lan_ip: '10.0.0.25',
+      },
+    })
+    expect(result.status, result.stderr).toBe(0)
+    const calls = readFileSync(logFile, 'utf8')
+    expect(calls).toContain('app:run live|10.0.0.25|')
+    expect(calls).not.toContain('mediamtx:start')
+    expect(calls).not.toContain('app:run dev')
+    expect(result.stdout).toContain('read-only readiness checks')
   })
 
   it('refreshes native preview before starting the app, overriding stale file settings', () => {
@@ -126,6 +162,107 @@ describe('Mac live startup', () => {
     expect(readFileSync(logFile, 'utf8')).toContain(
       'media:start|native|192.168.1.206',
     )
+  })
+
+  function pidFile(value: string) {
+    const state = join(directory, 'home/.local/state/kidane-mehret-live')
+    mkdirSync(state, { recursive: true })
+    const file = join(state, 'mediamtx.pid')
+    writeFileSync(file, value)
+    return file
+  }
+
+  it.each(['', 'garbage', '0', '-1', '99999999'])(
+    'ignores a stale or invalid PID file containing %j',
+    (pid) => {
+      const file = pidFile(pid)
+      const result = run([], { MEDIAMTX_BACKEND: 'auto', DOCKER_EXIT: '0' })
+      expect(result.status, result.stderr).toBe(0)
+      expect(readFileSync(logFile, 'utf8')).toContain(
+        'media:start|docker|192.168.1.206',
+      )
+      expect(readFileSync(file, 'utf8')).toBe(pid)
+    },
+  )
+
+  it('does not select or signal a reused PID whose arguments merely mention MediaMTX', () => {
+    const file = pidFile(String(process.pid))
+    const binary = join(
+      directory,
+      'home/.local/share/kidane-mehret-live/mediamtx-1.21.2/mediamtx',
+    )
+    const result = run([], {
+      MEDIAMTX_BACKEND: 'auto',
+      DOCKER_EXIT: '0',
+      MOCK_PROCESS_COMMAND: `/usr/bin/unrelated ${binary}`,
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(readFileSync(logFile, 'utf8')).toContain(
+      'media:start|docker|192.168.1.206',
+    )
+    expect(readFileSync(file, 'utf8')).toBe(String(process.pid))
+    expect(() => process.kill(process.pid, 0)).not.toThrow()
+  })
+
+  it('prefers a verified live native process even when Docker is ready', () => {
+    pidFile(String(process.pid))
+    const binary = join(
+      directory,
+      'home/.local/share/kidane-mehret-live/mediamtx-1.21.2/mediamtx',
+    )
+    const result = run([], {
+      MEDIAMTX_BACKEND: 'auto',
+      DOCKER_EXIT: '0',
+      MOCK_PROCESS_COMMAND: `${binary} ${binary}.yml`,
+    })
+    expect(result.status, result.stderr).toBe(0)
+    expect(readFileSync(logFile, 'utf8')).toContain(
+      'media:start|native|192.168.1.206',
+    )
+  })
+
+  it.each(['start', 'stop'])(
+    'standalone preview %s ignores a stale PID when Docker is ready',
+    (action) => {
+      const file = pidFile('99999999')
+      copyFileSync(
+        new URL('./mediamtx.sh', import.meta.url),
+        join(directory, 'scripts/mediamtx.sh'),
+      )
+      command(
+        'docker',
+        'printf "docker:%s\\n" "$*" >> "$CALL_LOG"; case "$*" in *"ps -q mediamtx"*) echo fixture-container;; esac; exit 0',
+      )
+      const result = run([action], { MEDIAMTX_BACKEND: 'auto' }, 'mediamtx.sh')
+      expect(result.status, result.stderr).toBe(0)
+      const calls = readFileSync(logFile, 'utf8')
+      expect(calls).toContain(action === 'start' ? 'up -d mediamtx' : 'down')
+      expect(calls).not.toContain('app:')
+      expect(readFileSync(file, 'utf8')).toBe('99999999')
+    },
+  )
+
+  it('standalone preview start preserves a verified native process without trying Docker', () => {
+    pidFile(String(process.pid))
+    copyFileSync(
+      new URL('./mediamtx.sh', import.meta.url),
+      join(directory, 'scripts/mediamtx.sh'),
+    )
+    const binary = join(
+      directory,
+      'home/.local/share/kidane-mehret-live/mediamtx-1.21.2/mediamtx',
+    )
+    const result = run(
+      ['start'],
+      {
+        MEDIAMTX_BACKEND: 'auto',
+        MOCK_PROCESS_COMMAND: `${binary} ${binary}.yml`,
+      },
+      'mediamtx.sh',
+    )
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('MediaMTX is already running')
+    expect(readFileSync(logFile, 'utf8')).toBe('')
   })
 
   it.each(['', '169.254.15.248', '192.168.1.999'])(

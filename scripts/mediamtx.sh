@@ -16,7 +16,7 @@ if [[ "$backend" == "docker" ]]; then
   exec docker compose -f "$ROOT_DIR/compose.yaml" --project-directory "$ROOT_DIR" down
 fi
 
-if [[ -f "$HOME/.local/state/kidane-mehret-live/mediamtx.pid" ]]; then
+if bash "$ROOT_DIR/scripts/mediamtx-native.sh" status; then
   exec bash "$ROOT_DIR/scripts/mediamtx-native.sh" "$action"
 fi
 
